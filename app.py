@@ -15,6 +15,9 @@ file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTER
 # Collect newly added files for realtime updates
 new_files: List[str] = []
 
+# Flag to track whether the file watcher has been initialized
+file_watcher_initialized = False
+
 @app.route('/')
 def index():
     """Render the main page."""
@@ -76,12 +79,18 @@ def on_new_file(filename: str):
     new_files.append(filename)
     print(f"New file detected: {filename} at {time.strftime('%H:%M:%S')}")
 
-@app.before_first_request
-def start_file_watcher():
-    """Start the file watcher before serving the first request."""
-    file_watcher.register_callback(on_new_file)
-    file_watcher.start()
-
+@app.before_request
+def initialize_file_watcher():
+    """Initialize the file watcher before handling the first request."""
+    global file_watcher_initialized
+    
+    if not file_watcher_initialized:
+        print(f"Initializing file watcher at {time.strftime('%H:%M:%S')}")  # Add logging
+        file_watcher.register_callback(on_new_file)
+        file_watcher.start()
+        file_watcher_initialized = True
+        print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
+        
 if __name__ == '__main__':
     # Make sure the upload folder exists
     if not os.path.exists(UPLOAD_FOLDER):
