@@ -1,11 +1,12 @@
 import os
 import time
 import threading
-from typing import List, Callable, Optional, Dict
+from typing import List, Callable, Optional, Dict, Set, Tuple
 from watchdog.observers.polling import PollingObserver
+from watchdog.events import FileSystemEventHandler
 
 class FileWatcher:
-    """Service that monitors a directory for new files using polling for compatibility with CephFS."""
+    """Service that monitors a directory for new and removed files using polling for compatibility with CephFS."""
     
     def __init__(
         self, 
@@ -26,6 +27,7 @@ class FileWatcher:
         self.files: List[str] = []
         self.file_mtimes: Dict[str, float] = {}  # Track modification times
         self.callbacks: List[Callable] = []
+        self.removal_callbacks: List[Callable] = []  # New: Callbacks for file removals
         self._observer: Optional[PollingObserver] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -57,6 +59,10 @@ class FileWatcher:
         """Register a callback function to be called when new files are detected."""
         self.callbacks.append(callback)
     
+    def register_removal_callback(self, callback: Callable) -> None:
+        """Register a callback function to be called when files are removed."""
+        self.removal_callbacks.append(callback)
+    
     def set_polling_interval(self, interval: float) -> bool:
         """
         Update the polling interval.
@@ -85,8 +91,6 @@ class FileWatcher:
         if self._running:
             return
         
-        from watchdog.events import FileSystemEventHandler
-            
         class Handler(FileSystemEventHandler):
             def __init__(self, watcher: 'FileWatcher'):
                 self.watcher = watcher
@@ -99,6 +103,16 @@ class FileWatcher:
                         self.watcher.files.append(filename)
                         self.watcher.file_mtimes[filename] = os.path.getmtime(event.src_path)
                         for callback in self.watcher.callbacks:
+                            callback(filename)
+                            
+            def on_deleted(self, event):
+                if not event.is_directory:
+                    filename = os.path.basename(event.src_path)
+                    if filename in self.watcher.files:
+                        self.watcher.files.remove(filename)
+                        if filename in self.watcher.file_mtimes:
+                            del self.watcher.file_mtimes[filename]
+                        for callback in self.watcher.removal_callbacks:
                             callback(filename)
         
         self._running = True
@@ -121,20 +135,27 @@ class FileWatcher:
         
         print(f"File watcher started with polling interval of {self.polling_interval} seconds")
     
-    def scan_now(self) -> List[str]:
+    def scan_now(self) -> Tuple[List[str], List[str]]:
         """
-        Manually scan for new files immediately.
-        Returns a list of newly discovered files.
+        Manually scan for new and removed files immediately.
+        
+        Returns:
+            Tuple containing lists of (new_files, removed_files)
         """
         new_files = []
+        removed_files = []
         
+        # Get current files in directory
+        current_files = set()
         for filename in os.listdir(self.directory_path):
             file_path = os.path.join(self.directory_path, filename)
-            
-            if (os.path.isfile(file_path) and 
-                self._is_valid_file_type(filename) and 
-                filename not in self.files):
-                
+            if os.path.isfile(file_path) and self._is_valid_file_type(filename):
+                current_files.add(filename)
+        
+        # Check for new files
+        for filename in current_files:
+            if filename not in self.files:
+                file_path = os.path.join(self.directory_path, filename)
                 self.files.append(filename)
                 self.file_mtimes[filename] = os.path.getmtime(file_path)
                 new_files.append(filename)
@@ -142,8 +163,21 @@ class FileWatcher:
                 # Call the callbacks
                 for callback in self.callbacks:
                     callback(filename)
+        
+        # Check for removed files
+        files_set = set(self.files)
+        for filename in files_set:
+            if filename not in current_files:
+                self.files.remove(filename)
+                if filename in self.file_mtimes:
+                    del self.file_mtimes[filename]
+                removed_files.append(filename)
+                
+                # Call the removal callbacks
+                for callback in self.removal_callbacks:
+                    callback(filename)
                     
-        return new_files
+        return new_files, removed_files
     
     def stop(self) -> None:
         """Stop the file watcher service."""
