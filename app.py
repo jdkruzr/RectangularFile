@@ -2,48 +2,156 @@ from flask import Flask, render_template, jsonify, request
 import os
 from typing import List
 from file_watcher import FileWatcher
+from db_manager import DatabaseManager
+from pdf_processor import PDFProcessor
+from pathlib import Path
 import time
+import signal
+import atexit
+import sys
+from functools import partial
+import multiprocessing
 
 app = Flask(__name__)
 
-# Directory to monitor
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-# Initialize the file watcher with default polling interval
-DEFAULT_POLLING_INTERVAL = 30.0  # 30 seconds default
+DEFAULT_POLLING_INTERVAL = 30.0
 file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTERVAL)
+db = DatabaseManager("pdf_index.db")
+pdf_processor = PDFProcessor()
 
-# Collect newly added and removed files for realtime updates
 new_files: List[str] = []
 removed_files: List[str] = []
 
-# Flag to track whether the file watcher has been initialized
 file_watcher_initialized = False
+_cleanup_done = False
+
+def calculate_processing_progress(doc: dict) -> float:
+    """Calculate the processing progress percentage for a document."""
+    status = doc.get('processing_status', '').lower()
+    if status == 'completed':
+        return 100.0
+    elif status == 'failed':
+        return 0.0
+    elif status == 'pending':
+        return 0.0
+    elif status == 'processing':
+        return doc.get('processing_progress', 50.0)
+    else:
+        return 0.0
+
+def cleanup():
+    """Clean up resources before shutdown."""
+    global _cleanup_done
+    if _cleanup_done:
+        return
+
+    print("Shutting down file watcher...")
+    if file_watcher_initialized:
+        file_watcher.stop()
+        time.sleep(0.2)
+
+        if hasattr(multiprocessing, 'resource_tracker'):
+            try:
+                multiprocessing.resource_tracker._resource_tracker.clear()
+                multiprocessing.resource_tracker._resource_tracker = None
+            except Exception:
+                pass
+
+    print("File watcher stopped.")
+    db.close()
+    _cleanup_done = True
+
+def signal_handler(signum, _):
+    """Handle shutdown signals gracefully."""
+    print(f"\nSignal received: {signum}")
+    cleanup()
+
+    if hasattr(multiprocessing, 'resource_tracker'):
+        try:
+            multiprocessing.resource_tracker._resource_tracker._kill_process()
+        except Exception:
+            pass
+
+    sys.exit(0)
+
+# Register cleanup handlers
+atexit.register(cleanup)
+signal.signal(signal.SIGINT, partial(signal_handler, signum=signal.SIGINT))
+signal.signal(signal.SIGTERM, partial(signal_handler, signum=signal.SIGTERM))
 
 @app.route('/')
 def index():
     """Render the main page."""
+    print(f"Rendering template with files: {file_watcher.files}")
+    print(f"Template folder is at: {app.template_folder}")
     return render_template('index.html',
                           files=file_watcher.files,
                           polling_interval=file_watcher.polling_interval)
 
+@app.route('/files/manage')
+def manage_files():
+    """Render the file management interface."""
+    return render_template('files.html')
+
 @app.route('/files')
 def get_files():
-    """API endpoint to get the current list of files."""
-    return jsonify(files=file_watcher.files)
+    """Get status of all files."""
+    status = request.args.get('status')
+    sort_by = request.args.get('sort', 'last_indexed_at')
+    order = request.args.get('order', 'desc')
+
+    fs_files = file_watcher.files
+    db_docs = db.get_active_documents(
+        status=status,
+        sort_by=sort_by,
+        order=order
+    )
+
+    files_status = []
+    for filename in fs_files:
+        file_info = {
+            'filename': filename,
+            'in_filesystem': True,
+            'in_database': False,
+            'processing_status': None,
+            'ocr_processed': False,
+            'last_indexed': None,
+            'file_size': None,
+            'processing_progress': None
+        }
+
+        for doc in db_docs:
+            if doc['filename'] == filename:
+                file_info.update({
+                    'in_database': True,
+                    'processing_status': doc['processing_status'],
+                    'ocr_processed': doc['ocr_processed'],
+                    'last_indexed': doc['last_indexed_at'],
+                    'file_size': doc.get('file_size_bytes'),
+                    'processing_progress': calculate_processing_progress(doc)
+                })
+                break
+
+        files_status.append(file_info)
+
+    return jsonify(
+        files=files_status,
+        total_count=len(files_status),
+        processing_count=sum(1 for f in files_status if f['processing_status'] == 'processing'),
+        completed_count=sum(1 for f in files_status if f['processing_status'] == 'completed')
+    )
 
 @app.route('/new_files')
 def get_new_files():
-    """API endpoint for polling new and removed files (for real-time updates)."""
+    """Get lists of new and removed files."""
     global new_files, removed_files
     
-    # Perform an immediate scan to mitigate longer polling intervals
     new_discovered, removed_discovered = file_watcher.scan_now()
     
-    # Capture any files that might have been detected by the background watcher
     files_to_return = new_files.copy()
     removed_to_return = removed_files.copy()
     
-    # Add files from immediate scan (avoiding duplicates)
     for file in new_discovered:
         if file not in files_to_return:
             files_to_return.append(file)
@@ -52,7 +160,6 @@ def get_new_files():
         if file not in removed_to_return:
             removed_to_return.append(file)
     
-    # Clear the pending lists
     new_files = []
     removed_files = []
     
@@ -60,18 +167,31 @@ def get_new_files():
 
 @app.route('/scan')
 def scan_files():
-    """Manual endpoint to trigger an immediate scan."""
+    """Manually trigger a file scan."""
     new_discovered, removed_discovered = file_watcher.scan_now()
-    return jsonify(new_files=new_discovered, removed_files=removed_discovered)
+    
+    for filename in new_discovered:
+        filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+        doc_id = db.add_document(filepath)
+        if not doc_id:
+            print(f"Failed to add document to database: {filename}")
+    
+    for filename in removed_discovered:
+        filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+        if not db.mark_document_removed(filepath):
+            print(f"Failed to mark document as removed: {filename}")
+    
+    return jsonify(
+        new_files=new_discovered, 
+        removed_files=removed_discovered
+    )
 
 @app.route('/settings', methods=['POST'])
 def update_settings():
-    """Update file watcher settings."""
+    """Update application settings."""
     try:
-        # Get the new polling interval from form data
         new_interval = float(request.form.get('polling_interval', DEFAULT_POLLING_INTERVAL))
         
-        # Update the polling interval
         success = file_watcher.set_polling_interval(new_interval)
         
         if success:
@@ -84,22 +204,38 @@ def update_settings():
 
 @app.route('/settings')
 def get_settings():
-    """Get current settings."""
+    """Get current application settings."""
     return jsonify(
         polling_interval=file_watcher.polling_interval
     )
 
 def on_new_file(filename: str):
-    """Callback function for when a new file is detected."""
+    """Handle new file detection."""
     global new_files
     new_files.append(filename)
     print(f"New file detected: {filename} at {time.strftime('%H:%M:%S')}")
 
+    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+    doc_id = db.add_document(filepath)
+    if doc_id:
+        print(f"Added document to database with ID: {doc_id}")
+        # Process the document
+        if pdf_processor.process_document(filepath, doc_id, db):
+            print(f"Successfully extracted text from {filename}")
+        else:
+            print(f"Failed to extract text from {filename}")
+
 def on_file_removed(filename: str):
-    """Callback function for when a file is removed."""
+    """Handle file removal."""
     global removed_files
     removed_files.append(filename)
     print(f"File removed: {filename} at {time.strftime('%H:%M:%S')}")
+
+    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+    if db.mark_document_removed(filepath):
+        print(f"Marked document as removed in database: {filename}")
+    else:
+        print(f"Failed to mark document as removed in database: {filename}")
 
 @app.before_request
 def initialize_file_watcher():
@@ -114,9 +250,10 @@ def initialize_file_watcher():
         print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
 
 if __name__ == '__main__':
-    # Make sure the upload folder exists
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
     
-    # Start the Flask app
-    app.run(debug=True)
+    try:
+        app.run(debug=True)
+    finally:
+        cleanup()
