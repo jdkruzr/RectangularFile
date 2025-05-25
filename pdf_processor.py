@@ -66,13 +66,14 @@ class PDFProcessor:
         db_manager: DatabaseManager
     ) -> bool:
         try:
-            self.logger.info(f"Starting text extraction for document {doc_id}")
+            self.logger.info(f"=== Starting text extraction for document {doc_id} ===")
+            self.logger.info(f"Processing file: {pdf_path}")
 
             if not db_manager.mark_text_extraction_started(doc_id):
                 self.logger.error("Failed to mark document as processing")
                 return False
 
-            self.logger.info("Checking for extractable text...")
+            self.logger.info("=== Phase 1: Initial Text Check ===")
             db_manager.update_processing_progress(
                 doc_id, 10.0, "Checking for extractable text"
             )
@@ -84,12 +85,11 @@ class PDFProcessor:
                 )
                 return False
 
-            self.logger.info("Text found, beginning extraction...")
+            self.logger.info("=== Phase 2: Page Count and Setup ===")
             db_manager.update_processing_progress(
                 doc_id, 20.0, "Beginning text extraction"
             )
 
-            self.logger.info("Getting page count...")
             total_pages = self.get_page_count(pdf_path)
             self.logger.info(f"Found {total_pages} pages")
             
@@ -98,52 +98,71 @@ class PDFProcessor:
                 db_manager.update_processing_progress(
                     doc_id, 0.0, "Document appears to be empty"
                 )
-            return False
+                return False
 
             page_data = {}
             progress_per_page = 60.0 / total_pages if total_pages > 0 else 60.0
 
-            self.logger.info("Starting page-by-page extraction...")
-            for page_num, page_layout in enumerate(extract_pages(pdf_path), 1):
-                self.logger.info(f"Processing page {page_num}/{total_pages}")
-                
-                if not isinstance(page_layout, LTPage):
-                    self.logger.warning(f"Skipping non-page element on page {page_num}")
-                    continue
+            self.logger.info("=== Phase 3: Page-by-Page Extraction ===")
+            try:
+                self.logger.info("Starting extract_pages generator")
+                pages = extract_pages(pdf_path)
+                self.logger.info("Successfully created pages generator")
 
-                current_progress = 20.0 + (page_num * progress_per_page)
+                for page_num, page_layout in enumerate(pages, 1):
+                    self.logger.info(f"-> Starting page {page_num}/{total_pages}")
+                    
+                    if not isinstance(page_layout, LTPage):
+                        self.logger.warning(f"Skipping non-page element on page {page_num}")
+                        continue
+
+                    current_progress = 20.0 + (page_num * progress_per_page)
+                    self.logger.info(f"Updating progress to {current_progress:.1f}%")
+                    db_manager.update_processing_progress(
+                        doc_id,
+                        current_progress,
+                        f"Extracting text from page {page_num}/{total_pages}"
+                    )
+
+                    page_text = []
+                    char_count = 0
+
+                    self.logger.info(f"Processing {len(page_layout._objs)} elements on page {page_num}")
+                    for element in page_layout:
+                        if isinstance(element, LTTextContainer):
+                            text = element.get_text()
+                            page_text.append(text)
+                            char_count += sum(
+                                1 for char in element
+                                if isinstance(char, LTChar)
+                            )
+
+                    text = ''.join(page_text).strip()
+                    word_count = len(text.split())
+                    confidence = 1.0 if char_count > 0 else 0.0
+
+                    self.logger.info(
+                        f"Page {page_num} complete: {word_count} words, "
+                        f"{char_count} characters, {len(page_text)} text blocks"
+                    )
+                    
+                    page_data[page_layout.pageid] = {
+                        'text': text,
+                        'confidence': confidence,
+                        'word_count': word_count,
+                        'char_count': char_count,
+                        'processed_at': datetime.now()
+                    }
+                    self.logger.info(f"-> Completed page {page_num}/{total_pages}")
+
+            except Exception as page_error:
+                self.logger.error(f"Error during page extraction: {page_error}")
                 db_manager.update_processing_progress(
-                    doc_id,
-                    current_progress,
-                    f"Extracting text from page {page_num}/{total_pages}"
+                    doc_id, 0.0, f"Error during page extraction: {str(page_error)}"
                 )
+                return False
 
-                page_text = []
-                char_count = 0
-
-                for element in page_layout:
-                    if isinstance(element, LTTextContainer):
-                        text = element.get_text()
-                        page_text.append(text)
-                        char_count += sum(
-                            1 for char in element
-                            if isinstance(char, LTChar)
-                        )
-
-                text = ''.join(page_text).strip()
-                word_count = len(text.split())
-                confidence = 1.0 if char_count > 0 else 0.0
-
-                self.logger.info(f"Page {page_num}: found {word_count} words")
-                
-                page_data[page_layout.pageid] = {
-                    'text': text,
-                    'confidence': confidence,
-                    'word_count': word_count,
-                    'char_count': char_count,
-                    'processed_at': datetime.now()
-                }
-
+            self.logger.info("=== Phase 4: Final Processing ===")
             if not page_data:
                 self.logger.warning(f"No text extracted from document {doc_id}")
                 db_manager.update_processing_progress(
@@ -159,7 +178,14 @@ class PDFProcessor:
             success = db_manager.store_extracted_text(doc_id, page_data)
 
             if success:
-                self.logger.info(f"Successfully processed document {doc_id}")
+                total_words = sum(page['word_count'] for page in page_data.values())
+                total_chars = sum(page['char_count'] for page in page_data.values())
+                self.logger.info(
+                    f"Successfully processed document {doc_id}\n"
+                    f"Total words: {total_words}\n"
+                    f"Total characters: {total_chars}\n"
+                    f"Pages processed: {len(page_data)}"
+                )
             else:
                 self.logger.error(f"Failed to store text for document {doc_id}")
                 db_manager.update_processing_progress(
@@ -171,5 +197,6 @@ class PDFProcessor:
         except Exception as e:
             error_message = f"Error processing document: {str(e)}"
             self.logger.error(f"Error processing document {doc_id}: {e}")
+            self.logger.exception("Full traceback:")
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
