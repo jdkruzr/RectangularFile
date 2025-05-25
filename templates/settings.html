@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Settings - PDF Processing</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .title-bar {
+            background-color: #2c3e50;
+            color: white;
+            padding: 15px 0;
+            text-align: center;
+            margin-bottom: 0;
+        }
+        .app-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .nav-bar {
+            background-color: #34495e;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #2c3e50;
+        }
+        .nav-bar ul {
+            list-style-type: none;
+            margin: 0;
+            padding: 0 20px;
+            display: flex;
+        }
+        .nav-bar li {
+            margin-right: 20px;
+            border-bottom: none;
+            padding: 0;
+        }
+        .nav-bar a {
+            text-decoration: none;
+            color: white;
+            font-weight: bold;
+        }
+        .nav-bar a:hover {
+            color: #3498db;
+        }
+        .settings-section {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="number"], input[type="text"], select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 0;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .notification {
+            background-color: #f8f9fa;
+            border-left: 4px solid #28a745;
+            padding: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/settings/page">Settings</a></li>
+        </ul>
+    </div>
+
+    <h2>Application Settings</h2>
+
+    <div id="notification" class="notification"></div>
+    <div class="settings-section">
+        <h2>File Monitoring Settings</h2>
+        <div class="form-group">
+            <label for="pollingInterval">Polling Interval (seconds)</label>
+            <input type="number" id="pollingInterval" min="1" step="1" value="30">
+            <p>How often the system checks for new files. Lower values are more responsive but use more resources.</p>
+        </div>
+        <button id="saveMonitoringSettings">Save Monitoring Settings</button>
+    </div>
+    
+    <div class="settings-section">
+        <h2>File Processing Settings</h2>
+        <div class="form-group">
+            <label for="fileTypes">File Types to Monitor</label>
+            <input type="text" id="fileTypes" placeholder=".pdf,.txt (comma separated)" value=".pdf">
+            <p>File extensions to monitor, separated by commas. Leave empty to monitor all files.</p>
+        </div>
+        <button id="saveProcessingSettings">Save Processing Settings</button>
+    </div>
+
+    <script>
+        // Load current settings when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('/settings')  // This is correct - it's the API endpoint
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('pollingInterval').value = data.polling_interval;
+
+                    // Also set file types if available
+                    if (data.file_types && Array.isArray(data.file_types)) {
+                        document.getElementById('fileTypes').value = data.file_types.join(',');
+                    }
+                });
+        });
+        
+        // Save monitoring settings
+        document.getElementById('saveMonitoringSettings').addEventListener('click', function() {
+            const pollingInterval = document.getElementById('pollingInterval').value;
+            
+            const formData = new FormData();
+            formData.append('polling_interval', pollingInterval);
+            
+            fetch('/settings', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                const notification = document.getElementById('notification');
+                notification.textContent = data.message;
+                notification.style.display = 'block';
+                
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, 3000);
+            });
+        });
+        
+        // Save processing settings
+        document.getElementById('saveProcessingSettings').addEventListener('click', function() {
+            const fileTypes = document.getElementById('fileTypes').value;
+            
+            const formData = new FormData();
+            formData.append('file_types', fileTypes);
+            
+            fetch('/settings/files', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                const notification = document.getElementById('notification');
+                notification.textContent = data.message;
+                notification.style.display = 'block';
+                
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, 3000);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -465,6 +465,120 @@ class DatabaseManager:
             self.logger.error(f"Error marking document {doc_id} as processing: {e}")
             return False
 
+    def reset_document_status(self, filepath: Path) -> bool:
+        """Reset a document's processing status to allow reprocessing."""
+        try:
+            relative_path = str(filepath.relative_to(Path.cwd()))
+            
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE pdf_documents 
+                    SET processing_status = 'pending',
+                        processing_progress = 0.0,
+                        ocr_processed = FALSE
+                    WHERE relative_path = ?
+                    RETURNING id
+                """, (relative_path,))
+                
+                result = cursor.fetchone()
+                if result:
+                    self.logger.info(f"Reset processing status for: {filepath}")
+                    return True
+                else:
+                    self.logger.warning(f"Document not found: {filepath}")
+                    return False
+                    
+        except sqlite3.Error as e:
+            self.logger.error(f"Error resetting document status: {e}")
+            return False
+    
+    def get_document_id(self, filepath: Path) -> Optional[int]:
+        """Get the database ID for a document."""
+        try:
+            relative_path = str(filepath.relative_to(Path.cwd()))
+            
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id FROM pdf_documents
+                    WHERE relative_path = ?
+                """, (relative_path,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                return None
+                    
+        except sqlite3.Error as e:
+            self.logger.error(f"Error getting document ID: {e}")
+            return None
+
+def get_document_by_id(self, doc_id: int) -> Optional[Dict]:
+    """
+    Get document details by ID.
+    
+    Args:
+        doc_id: Document ID to retrieve
+        
+    Returns:
+        Dictionary with document details or None if not found
+    """
+    try:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, filename, relative_path, processing_status, 
+                       last_indexed_at, ocr_processed, processing_progress
+                FROM pdf_documents
+                WHERE id = ?
+            """, (doc_id,))
+            
+            result = cursor.fetchone()
+            if result:
+                return dict(result)
+            else:
+                self.logger.warning(f"Document ID not found: {doc_id}")
+                return None
+                
+    except sqlite3.Error as e:
+        self.logger.error(f"Error getting document by ID {doc_id}: {e}")
+        return None
+
+def reset_document_status_by_id(self, doc_id: int) -> bool:
+    """
+    Reset a document's processing status by ID.
+    
+    Args:
+        doc_id: Document ID to reset
+        
+    Returns:
+        bool: True if successful, False if document not found or error
+    """
+    try:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE pdf_documents 
+                SET processing_status = 'pending',
+                    processing_progress = 0.0,
+                    ocr_processed = FALSE
+                WHERE id = ?
+                RETURNING id
+            """, (doc_id,))
+            
+            result = cursor.fetchone()
+            if result:
+                self.logger.info(f"Reset processing status for document ID: {doc_id}")
+                return True
+            else:
+                self.logger.warning(f"Document ID not found: {doc_id}")
+                return False
+                
+    except sqlite3.Error as e:
+        self.logger.error(f"Error resetting document status for ID {doc_id}: {e}")
+        return False
+
     def close(self):
         if hasattr(self._local, 'conn'):
             self._local.conn.close()

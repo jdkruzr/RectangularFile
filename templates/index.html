@@ -3,14 +3,139 @@
 <head>
     <title>File Monitor (CephFS Compatible)</title>
     <style>
+        /* Title bar styles */
+        .title-bar {
+            background-color: #2c3e50;
+            color: white;
+            padding: 15px 0;
+            text-align: center;
+            margin-bottom: 0;
+        }
+        .app-title {
+            margin: 0;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        /* Update navigation bar to connect with title bar */
+        .nav-bar {
+            background-color: #34495e;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #2c3e50;
+        }
+        .nav-bar ul {
+            list-style-type: none;
+            margin: 0;
+            padding: 0 20px;
+            display: flex;
+        }
+        .nav-bar li {
+            margin-right: 20px;
+            border-bottom: none;
+            padding: 0;
+        }
+        .nav-bar a {
+            text-decoration: none;
+            color: white;
+            font-weight: bold;
+        }
+        .nav-bar a:hover {
+            color: #3498db;
+        }
+        .nav-bar .active {
+            color: #3498db;
+        }
+
+        /* Reset button styles */
+        .reset-button {
+            background-color: #ff9800;
+            color: white;
+            border: none;
+            padding: 3px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-left: 10px;
+            font-size: 0.8em;
+        }
+        .reset-button:hover {
+            background-color: #e68a00;
+        }
+        
+        /* Status badge styles */
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin-left: 8px;
+            display: inline-block;
+        }
+        .status-pending {
+            background-color: #ffd700;
+            color: #000;
+        }
+        .status-processing {
+            background-color: #007bff;
+            color: white;
+        }
+        .status-completed {
+            background-color: #28a745;
+            color: white;
+        }
+        .status-failed {
+            background-color: #dc3545;
+            color: white;
+        }
+        .status-removed {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        /* Divider style */
+        .divider {
+            display: inline-block;
+            color: #ccc;
+            margin: 0 8px;
+        }
+
+        /* Progress bar styles */
+        .progress-container {
+            height: 4px;
+            width: 100px;
+            background-color: #f0f0f0;
+            border-radius: 2px;
+            margin-left: 10px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        /* File item layout */
+        .file-item {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .file-name {
+            flex: 1;
+            min-width: 200px;
+        }
+        .file-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        /* Rest of your existing styles */
         body {
             font-family: Arial, sans-serif;
             max-width: 800px;
             margin: 0 auto;
             padding: 20px;
-        }
-        h1, h2 {
-            color: #333;
         }
         ul {
             list-style-type: none;
@@ -19,9 +144,6 @@
         li {
             padding: 12px 16px;
             border-bottom: 1px solid #ddd;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
         }
         li:last-child {
             border-bottom: none;
@@ -46,57 +168,22 @@
             cursor: pointer;
             border-radius: 4px;
         }
-        .status-badge {
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.8em;
-            margin-left: 8px;
-        }
-        .status-pending {
-            background-color: #ffd700;
-            color: #000;
-        }
-        .status-processing {
-            background-color: #007bff;
-            color: white;
-        }
-        .status-completed {
-            background-color: #28a745;
-            color: white;
-        }
-        .status-failed {
-            background-color: #dc3545;
-            color: white;
-        }
-        .status-removed {
-            background-color: #6c757d;
-            color: white;
-        }
-        .file-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .file-name {
-            font-weight: bold;
-        }
-        .file-meta {
-            font-size: 0.8em;
-            color: #666;
-        }
-        @keyframes fadeOut {
-            from { opacity: 1; }
-            to { opacity: 0; height: 0; padding: 0; margin: 0; border: 0; }
-        }
-        .removing {
-            animation: fadeOut 1s forwards;
-            background-color: #ffebee;
-        }
     </style>
 </head>
 <body>
-    <h1>File Monitor</h1>
-    
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/settings/page">Settings</a></li>
+        </ul>
+    </div>
+
     <div id="notification"></div>
     
     <button id="scanButton" class="button">Scan Now</button>
@@ -106,48 +193,6 @@
     </ul>
 
     <script>
-        function createFileListItem(file) {
-            const li = document.createElement('li');
-            
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
-            
-            const fileName = document.createElement('div');
-            fileName.className = 'file-name';
-            fileName.textContent = file.filename;
-            
-            const fileMeta = document.createElement('div');
-            fileMeta.className = 'file-meta';
-            
-            // Build metadata string
-            let metaInfo = [];
-            if (file.in_database) {
-                if (file.last_indexed) {
-                    metaInfo.push(`Last indexed: ${new Date(file.last_indexed).toLocaleString()}`);
-                }
-                if (file.ocr_processed) {
-                    metaInfo.push('OCR completed');
-                }
-            } else {
-                metaInfo.push('Not yet indexed');
-            }
-            fileMeta.textContent = metaInfo.join(' • ');
-            
-            fileInfo.appendChild(fileName);
-            fileInfo.appendChild(fileMeta);
-            li.appendChild(fileInfo);
-            
-            // Add status badge if we have processing status
-            if (file.processing_status) {
-                const status = document.createElement('span');
-                status.className = `status-badge status-${file.processing_status.toLowerCase()}`;
-                status.textContent = file.processing_status;
-                li.appendChild(status);
-            }
-            
-            return li;
-        }
-
         function updateFileList() {
             fetch('/files')
                 .then(response => response.json())
@@ -156,16 +201,65 @@
                     fileList.innerHTML = '';
                     
                     data.files.forEach(file => {
-                        const li = createFileListItem(file);
+                        const li = document.createElement('li');
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-item';
+                        
+                        // File name
+                        const fileName = document.createElement('div');
+                        fileName.className = 'file-name';
+                        fileName.textContent = file.filename;
+                        fileItem.appendChild(fileName);
+                        
+                        // File actions section
+                        const fileActions = document.createElement('div');
+                        fileActions.className = 'file-actions';
+                        
+                        // Status badge if available
+                        if (file.in_database && file.processing_status) {
+                            const statusBadge = document.createElement('span');
+                            statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
+                            statusBadge.textContent = file.processing_status;
+                            fileActions.appendChild(statusBadge);
+                            
+                            // Progress bar for processing items
+                            if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
+                                const progressContainer = document.createElement('div');
+                                progressContainer.className = 'progress-container';
+                                
+                                const progressBar = document.createElement('div');
+                                progressBar.className = 'progress-bar';
+                                progressBar.style.width = `${file.processing_progress}%`;
+                                
+                                progressContainer.appendChild(progressBar);
+                                fileActions.appendChild(progressContainer);
+                            }
+                        }
+                        
+                        // Add a divider
+                        const divider = document.createElement('span');
+                        divider.className = 'divider';
+                        divider.textContent = '|';
+                        fileActions.appendChild(divider);
+                        
+                        // Reset button
+                        const resetBtn = document.createElement('button');
+                        resetBtn.className = 'reset-button';
+                        resetBtn.textContent = 'Reset';
+                        resetBtn.onclick = () => resetProcessing(file.filename);
+                        fileActions.appendChild(resetBtn);
+                        
+                        fileItem.appendChild(fileActions);
+                        li.appendChild(fileItem);
                         fileList.appendChild(li);
                     });
                 });
         }
-
+        
         // Initial file list update
         updateFileList();
 
-        // Poll for updates every 5 seconds
+        // Poll for new files every 5 seconds
         setInterval(function() {
             fetch('/new_files')
                 .then(response => response.json())
@@ -190,7 +284,7 @@
                     }
                 });
         }, 5000);
-        
+
         // Setup manual scan button
         document.getElementById('scanButton').addEventListener('click', function() {
             this.textContent = 'Scanning...';
@@ -225,6 +319,46 @@
                     this.disabled = false;
                 });
         });
+        
+        function resetProcessing(filename) {
+            console.log(`Resetting file: ${filename}`);
+            
+            // First get the file's ID
+            fetch('/files')
+                .then(response => response.json())
+                .then(data => {
+                    const fileInfo = data.files.find(f => f.filename === filename);
+                    
+                    if (fileInfo && fileInfo.id) {
+                        // Now reset using the ID
+                        fetch(`/reset/${fileInfo.id}`)
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.success) {
+                                    updateFileList();  // Update the file list to show new status
+                                    const notification = document.getElementById('notification');
+                                    notification.textContent = result.message;
+                                    notification.style.display = 'block';
+                                    setTimeout(() => {
+                                        notification.style.display = 'none';
+                                    }, 3000);
+                                } else {
+                                    alert(`Error: ${result.message}`);
+                                }
+                            })
+                            .catch(error => {
+                                console.error("Reset error:", error);
+                                alert(`Error: ${error}`);
+                            });
+                    } else {
+                        alert('File not in database yet or ID not found');
+                    }
+                })
+                .catch(error => {
+                    console.error("Files fetch error:", error);
+                    alert(`Error fetching file data: ${error}`);
+                });
+        }
     </script>
 </body>
 </html>

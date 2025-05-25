@@ -8,7 +8,7 @@ from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.layout import LTTextContainer, LTChar, LTPage
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
-from db_manager import DatabaseManager  # Add the import for type hints
+from db_manager import DatabaseManager
 
 class PDFProcessor:
     def __init__(self):
@@ -65,6 +65,7 @@ class PDFProcessor:
         doc_id: int,
         db_manager: DatabaseManager
     ) -> bool:
+        self.logger.info("=== USING UPDATED VERSION WITH FULL LOGGING ===")
         try:
             self.logger.info(f"=== Starting text extraction for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
