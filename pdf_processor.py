@@ -141,6 +141,7 @@ class PDFProcessor:
                     text = ''.join(page_text).strip()
                     word_count = len(text.split())
                     confidence = 1.0 if char_count > 0 else 0.0
+                    self.logger.info(f"Page {page_num} confidence: {confidence} (char_count: {char_count})")
 
                     self.logger.info(
                         f"Page {page_num} complete: {word_count} words, "

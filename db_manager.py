@@ -350,13 +350,22 @@ class DatabaseManager:
             return []
 
     def store_extracted_text(self, doc_id: int, page_data: Dict[int, Dict[str, any]]) -> bool:
+        """Store extracted text and metadata for a document."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
 
+                # Calculate overall statistics
                 total_words = sum(page['word_count'] for page in page_data.values())
-                avg_confidence = sum(page['confidence'] for page in page_data.values()) / len(page_data) if page_data else 0
+                
+                # Debug confidence scores
+                page_confidences = [page['confidence'] for page in page_data.values()]
+                self.logger.info(f"Page confidences for doc {doc_id}: {page_confidences}")
 
+                avg_confidence = sum(page_confidences) / len(page_data) if page_data else 0
+                self.logger.info(f"Average confidence for doc {doc_id}: {avg_confidence}")
+                
+                # Update main document record
                 cursor.execute("""
                     UPDATE pdf_documents
                     SET processing_status = 'completed',
