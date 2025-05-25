@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ document.filename }} - RectangularFile</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .document-viewer {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .document-meta {
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .document-meta dl {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 5px;
+        }
+        .document-meta dt {
+            font-weight: bold;
+            color: #555;
+        }
+        .page-content {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .page-header {
+            background-color: #f8f9fa;
+            padding: 5px 10px;
+            border-left: 4px solid #007bff;
+            margin-bottom: 10px;
+        }
+        .page-text {
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+        mark {
+            background-color: #fff9c4;
+            padding: 0 2px;
+        }
+        .confidence-high {
+            background-color: rgba(40, 167, 69, 0.1);
+        }
+        .confidence-medium {
+            background-color: rgba(255, 193, 7, 0.1);
+        }
+        .confidence-low {
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/search">Search</a></li>
+            <li><a href="/settings/page">Settings</a></li>
+        </ul>
+    </div>
+
+    <h2>Document Viewer</h2>
+    
+    <div class="document-meta">
+        <h3>{{ document.filename }}</h3>
+        <dl>
+            {% if document.pdf_title %}
+                <dt>Title:</dt>
+                <dd>{{ document.pdf_title }}</dd>
+            {% endif %}
+            
+            {% if document.pdf_author %}
+                <dt>Author:</dt>
+                <dd>{{ document.pdf_author }}</dd>
+            {% endif %}
+            
+            {% if document.word_count %}
+                <dt>Word Count:</dt>
+                <dd>{{ document.word_count }}</dd>
+            {% endif %}
+            
+            {% if document.last_indexed_at %}
+                <dt>Indexed:</dt>
+                <dd>{{ document.last_indexed_at }}</dd>
+            {% endif %}
+            
+            <dt>Confidence:</dt>
+            <dd>{{ "%.1f"|format(document.confidence_score * 100) }}%</dd>
+        </dl>
+    </div>
+    
+    <div class="document-viewer">
+        {% if text_content %}
+            {% for page_num, page in text_content.items() %}
+                <div class="page-content {% if page.confidence < 0.7 %}confidence-low{% elif page.confidence < 0.9 %}confidence-medium{% else %}confidence-high{% endif %}">
+                    <div class="page-header">
+                        <strong>Page {{ page_num }}</strong>
+                        {% if page.confidence %}
+                            <span class="confidence">(Confidence: {{ "%.1f"|format(page.confidence * 100) }}%)</span>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="page-text" id="page-{{ page_num }}">
+                        {{ page.text }}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-results">No text content available for this document.</p>
+        {% endif %}
+    </div>
+
+    <script>
+        // Highlight search terms if provided
+        const highlight = "{{ highlight }}";
+        if (highlight) {
+            const terms = highlight.split(' ').filter(t => t.trim());
+            const pages = document.querySelectorAll('.page-text');
+            
+            for (const page of pages) {
+                let html = page.innerHTML;
+                
+                // Create a regex to match all terms (case insensitive)
+                const regex = new RegExp(`(${terms.join('|')})`, 'gi');
+                html = html.replace(regex, '<mark>$1</mark>');
+                
+                page.innerHTML = html;
+            }
+        }
+    </script>
+</body>
+</html>

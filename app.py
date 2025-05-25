@@ -254,6 +254,37 @@ def update_file_settings():
     except Exception as e:
         return jsonify(success=False, message=f"Error updating file types: {str(e)}"), 400
 
+@app.route('/search')
+def search_page():
+    """Render the search page."""
+    query = request.args.get('q', '')
+    results = []
+    
+    if query:
+        results = db.search_documents(query)
+        
+    return render_template('search.html', query=query, results=results)
+
+@app.route('/view/<int:doc_id>')
+def view_document(doc_id):
+    """View a document with optional text highlighting."""
+    highlight = request.args.get('highlight', '')
+    
+    # Get document details
+    document = db.get_document_by_id(doc_id)
+    if not document:
+        return render_template('error.html', message="Document not found"), 404
+        
+    # Get document text content
+    text_content = db.get_document_text(doc_id)
+    
+    return render_template(
+        'view_document.html',
+        document=document,
+        text_content=text_content,
+        highlight=highlight
+    )
+
 def on_new_file(filename: str):
     """Handle new file detection."""
     global new_files

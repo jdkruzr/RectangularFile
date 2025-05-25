@@ -513,10 +513,10 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self.logger.error(f"Error getting document ID: {e}")
             return None
-
+        
 def get_document_by_id(self, doc_id: int) -> Optional[Dict]:
     """
-    Get document details by ID.
+    Get comprehensive document details by ID.
     
     Args:
         doc_id: Document ID to retrieve
@@ -528,8 +528,14 @@ def get_document_by_id(self, doc_id: int) -> Optional[Dict]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, filename, relative_path, processing_status, 
-                       last_indexed_at, ocr_processed, processing_progress
+                SELECT 
+                    id, filename, relative_path, processing_status,
+                    file_size_bytes, file_created_at, file_modified_at,
+                    first_indexed_at, last_indexed_at, ocr_processed,
+                    ocr_last_processed_at, processing_progress,
+                    pdf_title, pdf_author, pdf_created_at, pdf_modified_at,
+                    pdf_page_count, pdf_version, has_text_content,
+                    has_images, confidence_score, word_count, language_detected
                 FROM pdf_documents
                 WHERE id = ?
             """, (doc_id,))
@@ -545,6 +551,169 @@ def get_document_by_id(self, doc_id: int) -> Optional[Dict]:
         self.logger.error(f"Error getting document by ID {doc_id}: {e}")
         return None
 
+def search_documents(self, query: str, limit: int = 20) -> List[Dict]:
+    """
+    Search for documents containing the query text.
+    
+    Args:
+        query: The search query
+        limit: Maximum number of results to return
+        
+    Returns:
+        List of matching documents with relevance info
+    """
+    try:
+        # Split query into keywords
+        keywords = [k.strip().lower() for k in query.split() if k.strip()]
+        if not keywords:
+            return []
+            
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First get documents with exact matches
+            results = []
+            
+            # Build a query that ranks documents by number of keyword matches
+            placeholders = ", ".join(["?"] * len(keywords))
+            like_clauses = []
+            params = []
+            
+            for keyword in keywords:
+                like_clauses.append("LOWER(text_content) LIKE ?")
+                params.append(f"%{keyword}%")
+            
+            # Query across all pages of all documents
+            cursor.execute(f"""
+                SELECT 
+                    d.id as doc_id,
+                    d.filename,
+                    d.relative_path,
+                    COUNT(DISTINCT p.page_number) as matching_pages,
+                    d.pdf_title,
+                    d.pdf_author,
+                    d.word_count,
+                    d.confidence_score,
+                    GROUP_CONCAT(DISTINCT p.page_number) as page_numbers
+                FROM 
+                    pdf_documents d
+                JOIN 
+                    pdf_text_content p ON d.id = p.pdf_id
+                WHERE 
+                    d.processing_status = 'completed'
+                    AND ({" OR ".join(like_clauses)})
+                GROUP BY 
+                    d.id
+                ORDER BY 
+                    COUNT(*) DESC,
+                    d.word_count DESC
+                LIMIT ?
+            """, params + [limit])
+            
+            # Convert to list of dictionaries
+            for row in cursor.fetchall():
+                doc = dict(row)
+                
+                # Get text snippets containing query terms
+                snippets = self.get_search_snippets(doc['doc_id'], keywords)
+                doc['snippets'] = snippets
+                
+                results.append(doc)
+                
+            return results
+            
+    except sqlite3.Error as e:
+        self.logger.error(f"Error searching documents: {e}")
+        return []
+
+def get_search_snippets(self, doc_id: int, keywords: List[str], 
+                        max_snippets: int = 3, 
+                        context_chars: int = 100) -> List[Dict]:
+    """
+    Get text snippets containing search keywords with surrounding context.
+    
+    Args:
+        doc_id: Document ID
+        keywords: List of search keywords
+        max_snippets: Maximum number of snippets to return
+        context_chars: Number of characters of context around matches
+        
+    Returns:
+        List of snippet dictionaries with page numbers and text
+    """
+    try:
+        snippets = []
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get text content from all pages
+            cursor.execute("""
+                SELECT page_number, text_content
+                FROM pdf_text_content
+                WHERE pdf_id = ?
+                ORDER BY page_number
+            """, (doc_id,))
+            
+            pages = cursor.fetchall()
+            
+            # Find snippets in each page
+            for page in pages:
+                page_number = page['page_number']
+                text = page['text_content']
+                text_lower = text.lower()
+                
+                for keyword in keywords:
+                    start_pos = 0
+                    while len(snippets) < max_snippets:
+                        pos = text_lower.find(keyword.lower(), start_pos)
+                        if pos == -1:
+                            break
+                            
+                        # Get snippet with context
+                        snippet_start = max(0, pos - context_chars)
+                        snippet_end = min(len(text), pos + len(keyword) + context_chars)
+                        
+                        # Find word boundaries
+                        while snippet_start > 0 and text[snippet_start].isalnum():
+                            snippet_start -= 1
+                            
+                        while snippet_end < len(text) and text[snippet_end].isalnum():
+                            snippet_end += 1
+                            
+                        snippet_text = text[snippet_start:snippet_end]
+                        
+                        # Add ellipsis if not at boundaries
+                        if snippet_start > 0:
+                            snippet_text = "..." + snippet_text
+                        if snippet_end < len(text):
+                            snippet_text = snippet_text + "..."
+                            
+                        # Highlight the keyword (for HTML display)
+                        highlight_start = pos - snippet_start
+                        highlight_end = highlight_start + len(keyword)
+                        highlighted_text = (
+                            snippet_text[:highlight_start] +
+                            "<mark>" +
+                            snippet_text[highlight_start:highlight_end] +
+                            "</mark>" +
+                            snippet_text[highlight_end:]
+                        )
+                        
+                        snippets.append({
+                            'page': page_number,
+                            'text': highlighted_text
+                        })
+                        
+                        # Move to next occurrence
+                        start_pos = pos + len(keyword)
+                
+            return snippets
+            
+    except sqlite3.Error as e:
+        self.logger.error(f"Error getting search snippets: {e}")
+        return []
+    
 def reset_document_status_by_id(self, doc_id: int) -> bool:
     """
     Reset a document's processing status by ID.
