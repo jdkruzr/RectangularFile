@@ -133,20 +133,20 @@ class PDFProcessor:
                         if isinstance(element, LTTextContainer):
                             text = element.get_text()
                             page_text.append(text)
-                            char_count += sum(
-                                1 for char in element
-                                if isinstance(char, LTChar)
-                            )
+                            char_count += len(text)  # Simply count characters in the text
+                            
+                            # Log sample of first few elements
+                            if len(page_text) <= 3:
+                                self.logger.info(f"Text sample: {text[:50].replace(chr(10), ' ')}...")
 
                     text = ''.join(page_text).strip()
                     word_count = len(text.split())
                     confidence = 1.0 if char_count > 0 else 0.0
-                    self.logger.info(f"Page {page_num} confidence: {confidence} (char_count: {char_count})")
 
                     self.logger.info(
-                        f"Page {page_num} complete: {word_count} words, "
-                        f"{char_count} characters, {len(page_text)} text blocks"
+                        f"Page {page_num} complete: {word_count} words, {char_count} characters, {len(page_text)} text blocks"
                     )
+                    self.logger.info(f"Page {page_num} confidence: {confidence} (char_count: {char_count})")
                     
                     page_data[page_layout.pageid] = {
                         'text': text,
