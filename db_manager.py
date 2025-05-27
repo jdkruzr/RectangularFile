@@ -193,7 +193,25 @@ class DatabaseManager:
             corrected_text TEXT,
             context_before TEXT,
             context_after TEXT,
+            page_image_path TEXT,
+            x1 INTEGER,
+            y1 INTEGER,
+            x2 INTEGER,
+            y2 INTEGER,
             created_at TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES handwriting_profiles(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS training_jobs (
+            id INTEGER PRIMARY KEY,
+            profile_id INTEGER,
+            status TEXT DEFAULT 'pending',
+            started_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            error_message TEXT,
+            model_path TEXT,
+            sample_count INTEGER,
+            accuracy_improvement FLOAT,
             FOREIGN KEY (profile_id) REFERENCES handwriting_profiles(id)
         );
 
@@ -874,6 +892,14 @@ class DatabaseManager:
             self.logger.error(f"Error resetting document status for ID {doc_id}: {e}")
             return False
 
+    def close(self):
+        """Close any open database connections."""
+        if hasattr(self._local, 'conn'):
+            try:
+                self._local.conn.close()
+                self.logger.info("Database connection closed")
+            except sqlite3.Error as e:
+                self.logger.error(f"Error closing database connection: {e}")
 
 
 

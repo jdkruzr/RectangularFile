@@ -48,6 +48,10 @@ def cleanup():
     if _cleanup_done:
         return
 
+    print("DEBUG: Cleanup function called from:")
+    import traceback
+    traceback.print_stack()
+
     print("Shutting down file watcher...")
     if file_watcher_initialized:
         file_watcher.stop()
@@ -82,6 +86,18 @@ atexit.register(cleanup)
 signal.signal(signal.SIGINT, partial(signal_handler, signum=signal.SIGINT))
 signal.signal(signal.SIGTERM, partial(signal_handler, signum=signal.SIGTERM))
 
+@app.before_request
+def initialize_file_watcher():
+    """Initialize the file watcher before handling the first request."""
+    global file_watcher_initialized
+    if not file_watcher_initialized:
+        print(f"Initializing file watcher at {time.strftime('%H:%M:%S')}")
+        file_watcher.register_callback(on_new_file)
+        file_watcher.register_removal_callback(on_file_removed)
+        file_watcher.start()
+        file_watcher_initialized = True
+        print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
+
 @app.route('/')
 def index():
     """Render the main page."""
@@ -111,11 +127,16 @@ def reset_processing(doc_id):
 
     # Reset status
     if db.reset_document_status_by_id(doc_id):
-        # Trigger reprocessing
-        if pdf_processor.process_document(filepath, doc_id, db):
-            return jsonify(success=True, message=f"Reset and reprocessed document {doc_id}")
+        # Try text extraction first
+        extracted = pdf_processor.process_document(filepath, doc_id, db)
+
+        # Always run OCR regardless of text extraction result
+        ocr_result = ocr_processor.process_document(filepath, doc_id, db)
+
+        if ocr_result:
+            return jsonify(success=True, message=f"Reset and processed document {doc_id}")
         else:
-            return jsonify(success=False, message="Reset succeeded but reprocessing failed"), 500
+            return jsonify(success=False, message="Reset succeeded but processing failed"), 500
     else:
         return jsonify(success=False, message="Failed to reset status"), 400
 
@@ -320,7 +341,7 @@ def on_new_file(filename: str):
         # Try text extraction first
         extracted = pdf_processor.process_document(filepath, doc_id, db)
 
-        # Automatically run OCR on the document regardless of text extraction result
+        # Always run OCR processing regardless of text extraction result
         print(f"Starting OCR processing for {filename}")
         ocr_result = ocr_processor.process_document(filepath, doc_id, db)
 
@@ -341,23 +362,11 @@ def on_file_removed(filename: str):
     else:
         print(f"Failed to mark document as removed in database: {filename}")
 
-@app.before_request
-def initialize_file_watcher():
-    """Initialize the file watcher before handling the first request."""
-    global file_watcher_initialized
-    if not file_watcher_initialized:
-        print(f"Initializing file watcher at {time.strftime('%H:%M:%S')}")
-        file_watcher.register_callback(on_new_file)
-        file_watcher.register_removal_callback(on_file_removed)
-        file_watcher.start()
-        file_watcher_initialized = True
-        print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
-
 if __name__ == '__main__':
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
-    
+
     try:
-        app.run(debug=True)
+        app.run(debug=True, use_reloader=False)  # Try disabling the reloader
     finally:
         cleanup()
