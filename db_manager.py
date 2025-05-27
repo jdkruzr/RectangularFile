@@ -119,6 +119,8 @@ class DatabaseManager:
             text_content TEXT,
             confidence_score FLOAT,
             processed_at TIMESTAMP,
+            ocr_text TEXT,
+            ocr_confidence_score FLOAT,
             PRIMARY KEY (pdf_id, page_number),
             FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
         );
@@ -200,6 +202,7 @@ class DatabaseManager:
         CREATE INDEX IF NOT EXISTS idx_text_content_pdf ON pdf_text_content(pdf_id);
         CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id);
         CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id);
+
         """
         
         try:
@@ -214,12 +217,41 @@ class DatabaseManager:
             raise
 
     def add_document(self, filepath: Path) -> Optional[int]:
+        """Add a new PDF document to the database or resurrect if marked as removed."""
         try:
             relative_path = str(filepath.relative_to(Path.cwd()))
             file_stats = filepath.stat()
             
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # First check if this path exists but is marked as removed
+                cursor.execute("""
+                    SELECT id FROM pdf_documents 
+                    WHERE relative_path = ? AND processing_status = 'removed'
+                """, (relative_path,))
+                
+                existing = cursor.fetchone()
+                if existing:
+                    # Resurrect the document
+                    cursor.execute("""
+                        UPDATE pdf_documents
+                        SET processing_status = 'pending',
+                            processing_progress = 0.0,
+                            file_size_bytes = ?,
+                            file_modified_at = ?,
+                            last_indexed_at = ?
+                        WHERE id = ?
+                    """, (
+                        file_stats.st_size,
+                        datetime.fromtimestamp(file_stats.st_mtime),
+                        datetime.now(),
+                        existing['id']
+                    ))
+                    self.logger.info(f"Resurrected document {filepath.name} with ID {existing['id']}")
+                    return existing['id']
+                
+                # If not found or not removed, insert new record
                 cursor.execute("""
                     INSERT INTO pdf_documents (
                         filename,
@@ -244,7 +276,7 @@ class DatabaseManager:
                 doc_id = cursor.lastrowid
                 self.logger.info(f"Added document {filepath.name} with ID {doc_id}")
                 return doc_id
-                
+                    
         except sqlite3.Error as e:
             self.logger.error(f"Error adding document {filepath}: {e}")
             return None
@@ -311,6 +343,87 @@ class DatabaseManager:
 
         except sqlite3.Error as e:
             self.logger.error(f"Error updating progress for document {doc_id}: {e}")
+            return False
+
+    def mark_ocr_started(self, doc_id: int) -> bool:
+        """Mark a document as being processed for OCR."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE pdf_documents
+                    SET processing_status = 'processing',
+                        processing_progress = 0.0,
+                        last_indexed_at = ?,
+                        ocr_processed = FALSE
+                    WHERE id = ?
+                    RETURNING id
+                """, (datetime.now(), doc_id))
+                
+                result = cursor.fetchone()
+                if result:
+                    self.logger.info(f"Marked document {doc_id} for OCR processing")
+                    return True
+                else:
+                    self.logger.warning(f"Document not found: {doc_id}")
+                    return False
+                    
+        except sqlite3.Error as e:
+            self.logger.error(f"Error marking document {doc_id} for OCR: {e}")
+            return False
+
+    def store_ocr_results(self, doc_id: int, page_data: Dict[int, Dict[str, any]]) -> bool:
+        """Store OCR results and metadata for a document."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Calculate overall statistics
+                total_words = sum(page['word_count'] for page in page_data.values())
+                avg_confidence = sum(page['confidence'] for page in page_data.values()) / len(page_data) if page_data else 0
+                
+                # Update the main document record
+                cursor.execute("""
+                    UPDATE pdf_documents
+                    SET processing_status = 'completed',
+                        ocr_processed = TRUE,
+                        ocr_last_processed_at = ?,
+                        last_indexed_at = ?,
+                        processing_progress = 100.0
+                    WHERE id = ?
+                """, (datetime.now(), datetime.now(), doc_id))
+                
+                # Store individual page data
+                for page_number, data in page_data.items():
+                    cursor.execute("""
+                        INSERT INTO pdf_text_content (
+                            pdf_id,
+                            page_number,
+                            ocr_text,
+                            ocr_confidence_score,
+                            processed_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT (pdf_id, page_number) 
+                        DO UPDATE SET
+                            ocr_text = excluded.ocr_text,
+                            ocr_confidence_score = excluded.ocr_confidence_score,
+                            processed_at = excluded.processed_at
+                    """, (
+                        doc_id,
+                        page_number,
+                        data['text'],
+                        data['confidence'],
+                        data['processed_at']
+                    ))
+                
+                self.logger.info(
+                    f"Stored OCR results for document {doc_id}: "
+                    f"{total_words} words across {len(page_data)} pages"
+                )
+                return True
+                
+        except sqlite3.Error as e:
+            self.logger.error(f"Error storing OCR results for document {doc_id}: {e}")
             return False
 
     def get_active_documents(self, status: Optional[str] = None, sort_by: str = 'last_indexed_at', order: str = 'desc') -> List[Dict]:
@@ -539,6 +652,31 @@ class DatabaseManager:
             self.logger.error(f"Error getting document by ID {doc_id}: {e}")
             return None
 
+    def mark_ready_for_ocr(self, doc_id: int) -> bool:
+        """Mark a document as ready for OCR processing."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE pdf_documents
+                    SET processing_status = 'pending',
+                        processing_progress = 0.0
+                    WHERE id = ?
+                    RETURNING id
+                """, (doc_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    self.logger.info(f"Marked document {doc_id} as ready for OCR")
+                    return True
+                else:
+                    self.logger.warning(f"Document not found: {doc_id}")
+                    return False
+                    
+        except sqlite3.Error as e:
+            self.logger.error(f"Error marking document {doc_id} for OCR: {e}")
+            return False
+
     def search_documents(self, query: str, limit: int = 20) -> List[Dict]:
         """
         Search for documents containing the query text.
@@ -736,7 +874,6 @@ class DatabaseManager:
             self.logger.error(f"Error resetting document status for ID {doc_id}: {e}")
             return False
 
-        def close(self):
-            if hasattr(self._local, 'conn'):
-                self._local.conn.close()
-                delattr(self._local, 'conn')
+
+
+

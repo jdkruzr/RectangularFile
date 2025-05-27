@@ -28,14 +28,7 @@
     </ul>
 
     <script>
-        function updateFileList() {
-            fetch('/files')
-                .then(response => response.json())
-                .then(data => {
-                    const fileList = document.getElementById('fileList');
-                    fileList.innerHTML = '';
-                    
-                    data.files.forEach(file => {
+        function createFileCard(file) {
                         const li = document.createElement('li');
                         const fileItem = document.createElement('div');
                         fileItem.className = 'file-item';
@@ -84,10 +77,44 @@
                         resetBtn.onclick = () => resetProcessing(file.filename);
                         fileActions.appendChild(resetBtn);
                         
-                        fileItem.appendChild(fileActions);
-                        li.appendChild(fileItem);
+            fileItem.appendChild(fileActions);
+            li.appendChild(fileItem);
+            return li;
+        }
+
+        function processOCR(docId) {
+            fetch(`/ocr/${docId}`)
+                .then(response => response.json())
+                .then(result => {
+                                if (result.success) {
+                        updateFileList();  // Update the file list to show processing status
+                                    const notification = document.getElementById('notification');
+                                    notification.textContent = result.message;
+                                    notification.style.display = 'block';
+                                    setTimeout(() => {
+                                        notification.style.display = 'none';
+                                    }, 3000);
+                                } else {
+                                    alert(`Error: ${result.message}`);
+                                }
+                            })
+                            .catch(error => {
+                    console.error("OCR error:", error);
+                                alert(`Error: ${error}`);
+                            });
+                    }
+
+        function updateFileList() {
+            fetch('/files')
+                .then(response => response.json())
+                .then(data => {
+                    const fileList = document.getElementById('fileList');
+                    fileList.innerHTML = '';
+
+                    data.files.forEach(file => {
+                        const li = createFileCard(file);
                         fileList.appendChild(li);
-                    });
+                });
                 });
         }
         

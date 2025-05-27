@@ -11,6 +11,7 @@ import atexit
 import sys
 from functools import partial
 import multiprocessing
+from handwriting_recognition import HandwritingRecognizer
 
 app = Flask(__name__)
 
@@ -19,6 +20,7 @@ DEFAULT_POLLING_INTERVAL = 30.0
 file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTERVAL)
 db = DatabaseManager("pdf_index.db")
 pdf_processor = PDFProcessor()
+ocr_processor = HandwritingRecognizer()
 
 new_files: List[str] = []
 removed_files: List[str] = []
@@ -285,6 +287,25 @@ def view_document(doc_id):
         highlight=highlight
     )
 
+@app.route('/ocr/<int:doc_id>')
+def process_ocr(doc_id):
+    """Process a document with handwriting recognition."""
+    # Get document details
+    document = db.get_document_by_id(doc_id)
+    if not document:
+        return jsonify(success=False, message="Document not found"), 404
+
+    # Get the filepath
+    filepath = Path(os.path.join(UPLOAD_FOLDER, document['filename']))
+    if not filepath.exists():
+        return jsonify(success=False, message="File no longer exists"), 404
+
+    # Start OCR processing
+    if ocr_processor.process_document(filepath, doc_id, db):
+        return jsonify(success=True, message=f"OCR processing started for document {doc_id}")
+    else:
+        return jsonify(success=False, message="Failed to start OCR processing"), 500
+    
 def on_new_file(filename: str):
     """Handle new file detection."""
     global new_files
@@ -295,10 +316,18 @@ def on_new_file(filename: str):
     doc_id = db.add_document(filepath)
     if doc_id:
         print(f"Added document to database with ID: {doc_id}")
-        if pdf_processor.process_document(filepath, doc_id, db):
-            print(f"Successfully extracted text from {filename}")
+
+        # Try text extraction first
+        extracted = pdf_processor.process_document(filepath, doc_id, db)
+
+        # Automatically run OCR on the document regardless of text extraction result
+        print(f"Starting OCR processing for {filename}")
+        ocr_result = ocr_processor.process_document(filepath, doc_id, db)
+
+        if ocr_result:
+            print(f"OCR processing started for {filename}")
         else:
-            print(f"Failed to extract text from {filename}")
+            print(f"Failed to start OCR processing for {filename}")
 
 def on_file_removed(filename: str):
     """Handle file removal."""
