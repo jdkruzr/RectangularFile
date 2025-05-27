@@ -64,9 +64,10 @@
     <!-- Navigation Bar -->
     <div class="nav-bar">
         <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/search">Search</a></li>
-            <li><a href="/settings/page">Settings</a></li>
+            <li><a href="/"{% if request.path == '/' %} class="active"{% endif %}>Home</a></li>
+            <li><a href="/search"{% if request.path.startswith('/search') %} class="active"{% endif %}>Search</a></li>
+            <li><a href="/training"{% if request.path.startswith('/training') %} class="active"{% endif %}>Training</a></li>
+            <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
         </ul>
     </div>
 

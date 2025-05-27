@@ -10,14 +10,15 @@
         <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
     </div>
 
-    <!-- Navigation Bar -->
-    <div class="nav-bar">
-        <ul>
-            <li><a href="/" class="active">Home</a></li>
-            <li><a href="/search">Search</a></li>
-            <li><a href="/settings/page">Settings</a></li>
-        </ul>
-    </div>
+<!-- Navigation Bar -->
+<div class="nav-bar">
+    <ul>
+        <li><a href="/"{% if request.path == '/' %} class="active"{% endif %}>Home</a></li>
+        <li><a href="/search"{% if request.path.startswith('/search') %} class="active"{% endif %}>Search</a></li>
+        <li><a href="/training"{% if request.path.startswith('/training') %} class="active"{% endif %}>Training</a></li>
+        <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
+    </ul>
+</div>
 
     <div id="notification"></div>
     
@@ -70,13 +71,22 @@
                         divider.textContent = '|';
                         fileActions.appendChild(divider);
                         
-                        // Reset button
-                        const resetBtn = document.createElement('button');
-                        resetBtn.className = 'reset-button';
-                        resetBtn.textContent = 'Reset';
-                        resetBtn.onclick = () => resetProcessing(file.filename);
-                        fileActions.appendChild(resetBtn);
-                        
+            // Inspector button
+            if (file.in_database && file.id) {
+                const inspectBtn = document.createElement('a');
+                inspectBtn.className = 'inspect-button';
+                inspectBtn.textContent = 'Inspect';
+                inspectBtn.href = `/files/${file.id}`;
+                fileActions.appendChild(inspectBtn);
+        }
+
+            // Reset button
+            const resetBtn = document.createElement('button');
+            resetBtn.className = 'reset-button';
+            resetBtn.textContent = 'Reset';
+            resetBtn.onclick = () => resetProcessing(file.filename);
+            fileActions.appendChild(resetBtn);
+
             fileItem.appendChild(fileActions);
             li.appendChild(fileItem);
             return li;

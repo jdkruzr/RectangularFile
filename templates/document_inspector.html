@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Document Inspector - {{ document.filename }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .inspector-container {
+            margin-top: 20px;
+        }
+        
+        .stats-panel {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        
+        .stat-section {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+        }
+        
+        .stat-header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 8px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .stat-label {
+            color: #666;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+        }
+        
+        .content-tabs {
+            margin-top: 30px;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-bottom: none;
+            margin-right: 5px;
+            border-radius: 4px 4px 0 0;
+        }
+        
+        .tab.active {
+            border-color: #ddd;
+            background-color: white;
+            margin-bottom: -1px;
+            border-bottom: 1px solid white;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .page-selector {
+            margin-bottom: 15px;
+        }
+        
+        .page-selector select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .text-display {
+            white-space: pre-wrap;
+            font-family: monospace;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .confidence-indicator {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+        
+        .confidence-low {
+            background-color: #dc3545;
+        }
+        
+        .confidence-medium {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        
+        .confidence-high {
+            background-color: #28a745;
+        }
+        
+        .action-buttons {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        .primary-button {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .secondary-button {
+            background-color: #6c757d;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/search">Search</a></li>
+            <li><a href="/training">Training</a></li>
+            <li><a href="/settings/page">Settings</a></li>
+        </ul>
+    </div>
+
+    <h2>Document Inspector</h2>
+    
+    <div class="document-meta">
+        <h3>{{ document.filename }}</h3>
+        <dl>
+            {% if document.file_size_bytes %}
+                <dt>File Size:</dt>
+                <dd>{{ (document.file_size_bytes / 1024)|round|int }} KB</dd>
+            {% endif %}
+            
+            {% if document.file_created_at %}
+                <dt>Created:</dt>
+                <dd>{{ document.file_created_at }}</dd>
+            {% endif %}
+            
+            {% if document.last_indexed_at %}
+                <dt>Last Indexed:</dt>
+                <dd>{{ document.last_indexed_at }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+    
+    <div class="inspector-container">
+        <div class="stats-panel">
+            <h3>Document Statistics</h3>
+            <div class="stats-grid">
+                <div class="stat-section">
+                    <div class="stat-header">Text Extraction</div>
+                    <div class="stat-row">
+                        <span class="stat-label">Pages Processed:</span>
+                        <span class="stat-value">{{ stats.text_extraction.page_count }}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Word Count:</span>
+                        <span class="stat-value">{{ stats.text_extraction.word_count }}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Average Confidence:</span>
+                        <span class="stat-value">
+                            {{ "%.1f"|format(stats.text_extraction.avg_confidence) }}%
+                            <span class="confidence-indicator 
+                                {% if stats.text_extraction.avg_confidence < 50 %}confidence-low
+                                {% elif stats.text_extraction.avg_confidence < 80 %}confidence-medium
+                                {% else %}confidence-high
+                                {% endif %}">
+                            </span>
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="stat-section">
+                    <div class="stat-header">OCR Processing</div>
+                    <div class="stat-row">
+                        <span class="stat-label">Pages Processed:</span>
+                        <span class="stat-value">{{ stats.ocr.page_count }}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Word Count:</span>
+                        <span class="stat-value">{{ stats.ocr.word_count }}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Average Confidence:</span>
+                        <span class="stat-value">
+                            {{ "%.1f"|format(stats.ocr.avg_confidence) }}%
+                            <span class="confidence-indicator 
+                                {% if stats.ocr.avg_confidence < 50 %}confidence-low
+                                {% elif stats.ocr.avg_confidence < 80 %}confidence-medium
+                                {% else %}confidence-high
+                                {% endif %}">
+                            </span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content-tabs">
+            <div class="tabs">
+                <div class="tab active" data-target="tab-extracted">Extracted Text</div>
+                <div class="tab" data-target="tab-ocr">OCR Results</div>
+                <div class="tab" data-target="tab-comparison">Comparison</div>
+            </div>
+            
+            <div id="tab-extracted" class="tab-content active">
+                <div class="page-selector">
+                    <label for="extracted-page-select">Select Page:</label>
+                    <select id="extracted-page-select">
+                        {% if text_content %}
+                            {% for page_num in text_content %}
+                                <option value="{{ page_num }}">Page {{ page_num }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="none">No pages available</option>
+                        {% endif %}
+                    </select>
+                </div>
+                
+                {% if text_content %}
+                    {% for page_num, page in text_content.items() %}
+                        <div class="page-content" id="extracted-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
+                            <div class="page-header">
+                                <strong>Page {{ page_num }}</strong>
+                                {% if page.confidence %}
+                                    <span class="confidence-indicator 
+                                        {% if page.confidence < 0.5 %}confidence-low
+                                        {% elif page.confidence < 0.8 %}confidence-medium
+                                        {% else %}confidence-high
+                                        {% endif %}">
+                                        Confidence: {{ "%.1f"|format(page.confidence * 100) }}%
+                                    </span>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="text-display">{{ page.text }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No extracted text available.</p>
+                {% endif %}
+            </div>
+            
+            <div id="tab-ocr" class="tab-content">
+                <div class="page-selector">
+                    <label for="ocr-page-select">Select Page:</label>
+                    <select id="ocr-page-select">
+                        {% if ocr_content %}
+                            {% for page_num in ocr_content %}
+                                <option value="{{ page_num }}">Page {{ page_num }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="none">No pages available</option>
+                        {% endif %}
+                    </select>
+                </div>
+                
+                {% if ocr_content %}
+                    {% for page_num, page in ocr_content.items() %}
+                        <div class="page-content" id="ocr-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
+                            <div class="page-header">
+                                <strong>Page {{ page_num }}</strong>
+                                {% if page.confidence %}
+                                    <span class="confidence-indicator 
+                                        {% if page.confidence < 0.5 %}confidence-low
+                                        {% elif page.confidence < 0.8 %}confidence-medium
+                                        {% else %}confidence-high
+                                        {% endif %}">
+                                        Confidence: {{ "%.1f"|format(page.confidence * 100) }}%
+                                    </span>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="text-display">{{ page.text }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No OCR results available.</p>
+                {% endif %}
+            </div>
+            
+            <div id="tab-comparison" class="tab-content">
+                <div class="page-selector">
+                    <label for="comparison-page-select">Select Page:</label>
+                    <select id="comparison-page-select">
+                        {% if common_pages %}
+                            {% for page_num in common_pages %}
+                                <option value="{{ page_num }}">Page {{ page_num }}</option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="none">No common pages available</option>
+                        {% endif %}
+                    </select>
+                </div>
+                
+                {% if common_pages %}
+                    {% for page_num in common_pages %}
+                        <div class="comparison-content" id="comparison-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                <div>
+                                    <h4>Extracted Text</h4>
+                                    <div class="text-display">{{ text_content[page_num].text }}</div>
+                                </div>
+                                <div>
+                                    <h4>OCR Result</h4>
+                                    <div class="text-display">{{ ocr_content[page_num].text }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No pages have both extracted text and OCR results for comparison.</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="action-buttons">
+            <a href="/view/{{ document.id }}" class="button primary-button">View Document</a>
+            <a href="/training/correct/{{ document.id }}/1" class="button secondary-button">Correct for Training</a>
+            <a href="/reset/{{ document.id }}" class="button secondary-button">Reset Processing</a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Tab functionality
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    // Remove active class from all tabs
+                    tabs.forEach(t => t.classList.remove('active'));
+                    
+                    // Add active class to clicked tab
+                    this.classList.add('active');
+                    
+                    // Hide all tab content
+                    const tabContents = document.querySelectorAll('.tab-content');
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    // Show the selected tab content
+                    const targetId = this.getAttribute('data-target');
+                    document.getElementById(targetId).classList.add('active');
+                });
+            });
+            
+            // Page selector functionality
+            const extractedPageSelect = document.getElementById('extracted-page-select');
+            if (extractedPageSelect) {
+                extractedPageSelect.addEventListener('change', function() {
+                    // Hide all page content
+                    const pageContents = document.querySelectorAll('[id^="extracted-page-"]');
+                    pageContents.forEach(content => content.style.display = 'none');
+                    
+                    // Show selected page content
+                    const selectedPage = document.getElementById('extracted-page-' + this.value);
+                    if (selectedPage) {
+                        selectedPage.style.display = 'block';
+                    }
+                });
+            }
+            
+            const ocrPageSelect = document.getElementById('ocr-page-select');
+            if (ocrPageSelect) {
+                ocrPageSelect.addEventListener('change', function() {
+                    // Hide all page content
+                    const pageContents = document.querySelectorAll('[id^="ocr-page-"]');
+                    pageContents.forEach(content => content.style.display = 'none');
+                    
+                    // Show selected page content
+                    const selectedPage = document.getElementById('ocr-page-' + this.value);
+                    if (selectedPage) {
+                        selectedPage.style.display = 'block';
+                    }
+                });
+            }
+            
+            const comparisonPageSelect = document.getElementById('comparison-page-select');
+            if (comparisonPageSelect) {
+                comparisonPageSelect.addEventListener('change', function() {
+                    // Hide all comparison content
+                    const comparisonContents = document.querySelectorAll('[id^="comparison-page-"]');
+                    comparisonContents.forEach(content => content.style.display = 'none');
+                    
+                    // Show selected comparison content
+                    const selectedComparison = document.getElementById('comparison-page-' + this.value);
+                    if (selectedComparison) {
+                        selectedComparison.style.display = 'block';
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

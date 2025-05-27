@@ -51,7 +51,7 @@ def cleanup():
     print("DEBUG: Cleanup function called from:")
     import traceback
     traceback.print_stack()
-
+    
     print("Shutting down file watcher...")
     if file_watcher_initialized:
         file_watcher.stop()
@@ -86,18 +86,6 @@ atexit.register(cleanup)
 signal.signal(signal.SIGINT, partial(signal_handler, signum=signal.SIGINT))
 signal.signal(signal.SIGTERM, partial(signal_handler, signum=signal.SIGTERM))
 
-@app.before_request
-def initialize_file_watcher():
-    """Initialize the file watcher before handling the first request."""
-    global file_watcher_initialized
-    if not file_watcher_initialized:
-        print(f"Initializing file watcher at {time.strftime('%H:%M:%S')}")
-        file_watcher.register_callback(on_new_file)
-        file_watcher.register_removal_callback(on_file_removed)
-        file_watcher.start()
-        file_watcher_initialized = True
-        print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
-
 @app.route('/')
 def index():
     """Render the main page."""
@@ -129,10 +117,10 @@ def reset_processing(doc_id):
     if db.reset_document_status_by_id(doc_id):
         # Try text extraction first
         extracted = pdf_processor.process_document(filepath, doc_id, db)
-
+        
         # Always run OCR regardless of text extraction result
         ocr_result = ocr_processor.process_document(filepath, doc_id, db)
-
+        
         if ocr_result:
             return jsonify(success=True, message=f"Reset and processed document {doc_id}")
         else:
@@ -308,59 +296,121 @@ def view_document(doc_id):
         highlight=highlight
     )
 
-@app.route('/ocr/<int:doc_id>')
-def process_ocr(doc_id):
-    """Process a document with handwriting recognition."""
-    # Get document details
+@app.route('/files/<int:doc_id>')
+def document_inspector(doc_id):
+    """Document inspector showing detailed document information."""
     document = db.get_document_by_id(doc_id)
     if not document:
-        return jsonify(success=False, message="Document not found"), 404
-
-    # Get the filepath
-    filepath = Path(os.path.join(UPLOAD_FOLDER, document['filename']))
-    if not filepath.exists():
-        return jsonify(success=False, message="File no longer exists"), 404
-
-    # Start OCR processing
-    if ocr_processor.process_document(filepath, doc_id, db):
-        return jsonify(success=True, message=f"OCR processing started for document {doc_id}")
-    else:
-        return jsonify(success=False, message="Failed to start OCR processing"), 500
+        return render_template('error.html', message="Document not found"), 404
     
-def on_new_file(filename: str):
-    """Handle new file detection."""
-    global new_files
-    new_files.append(filename)
-    print(f"New file detected: {filename} at {time.strftime('%H:%M:%S')}")
+    # Get text extraction content
+    text_content = db.get_document_text(doc_id) or {}
+    
+    # Get OCR content
+    ocr_content = {}
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT page_number, ocr_text, ocr_confidence_score, processed_at
+                FROM pdf_text_content
+                WHERE pdf_id = ? AND ocr_text IS NOT NULL
+                ORDER BY page_number
+            """, (doc_id,))
+            
+            for row in cursor.fetchall():
+                ocr_content[row['page_number']] = {
+                    'text': row['ocr_text'],
+                    'confidence': row['ocr_confidence_score'],
+                    'processed_at': row['processed_at']
+                }
+    except Exception as e:
+        print(f"Error fetching OCR content: {e}")
+    
+    # Pre-compute common pages
+    common_pages = sorted(set(text_content.keys()) & set(ocr_content.keys()))
+    
+    # Get statistics
+    stats = {
+        'text_extraction': {
+            'page_count': len(text_content) if text_content else 0,
+            'word_count': document.get('word_count', 0),
+            'avg_confidence': document.get('confidence_score', 0) * 100 if document.get('confidence_score') else 0
+        },
+        'ocr': {
+            'page_count': len(ocr_content),
+            'word_count': sum(len(page.get('text', '').split()) for page in ocr_content.values()),
+            'avg_confidence': sum(page.get('confidence', 0) for page in ocr_content.values()) / len(ocr_content) * 100 if ocr_content else 0
+        }
+    }
+    
+    return render_template(
+        'document_inspector.html',
+        document=document,
+        text_content=text_content,
+        ocr_content=ocr_content,
+        stats=stats,
+        common_pages=common_pages
+    )
 
-    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
-    doc_id = db.add_document(filepath)
-    if doc_id:
-        print(f"Added document to database with ID: {doc_id}")
-
-        # Try text extraction first
-        extracted = pdf_processor.process_document(filepath, doc_id, db)
-
-        # Always run OCR processing regardless of text extraction result
-        print(f"Starting OCR processing for {filename}")
-        ocr_result = ocr_processor.process_document(filepath, doc_id, db)
-
-        if ocr_result:
-            print(f"OCR processing started for {filename}")
-        else:
-            print(f"Failed to start OCR processing for {filename}")
-
-def on_file_removed(filename: str):
-    """Handle file removal."""
-    global removed_files
-    removed_files.append(filename)
-    print(f"File removed: {filename} at {time.strftime('%H:%M:%S')}")
-
-    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
-    if db.mark_document_removed(filepath):
-        print(f"Marked document as removed in database: {filename}")
-    else:
-        print(f"Failed to mark document as removed in database: {filename}")
+@app.route('/training')
+def training_management():
+    """Manage handwriting recognition training."""
+    # Get training stats and jobs
+    success = request.args.get('success', None)
+    message = request.args.get('message', None)
+    
+    if success is not None:
+        success = success.lower() == 'true'
+    
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Get stats
+        cursor.execute("""
+            SELECT COUNT(*) as total_samples 
+            FROM handwriting_training_data
+        """)
+        total_samples = cursor.fetchone()['total_samples']
+        
+        cursor.execute("""
+            SELECT COUNT(*) as total_jobs 
+            FROM training_jobs 
+            WHERE status = 'completed'
+        """)
+        total_jobs = cursor.fetchone()['total_jobs']
+        
+        cursor.execute("""
+            SELECT AVG(accuracy_improvement) as avg_improvement 
+            FROM training_jobs 
+            WHERE status = 'completed' AND accuracy_improvement IS NOT NULL
+        """)
+        avg_improvement = cursor.fetchone()['avg_improvement'] or 0
+        
+        # Get recent jobs
+        cursor.execute("""
+            SELECT j.id, p.profile_name, j.status, j.started_at, j.completed_at,
+                   j.sample_count, j.accuracy_improvement
+            FROM training_jobs j
+            JOIN handwriting_profiles p ON j.profile_id = p.id
+            ORDER BY j.started_at DESC
+            LIMIT 10
+        """)
+        jobs = [dict(row) for row in cursor.fetchall()]
+        
+        stats = {
+            'total_samples': total_samples,
+            'total_jobs': total_jobs,
+            'avg_improvement': avg_improvement
+        }
+        
+    return render_template(
+        'training_management.html',
+        stats=stats,
+        jobs=jobs,
+        success=success,
+        message=message
+    )
 
 @app.route('/training/correct/<int:doc_id>/<int:page_num>')
 def training_correction_page(doc_id, page_num):
@@ -432,74 +482,59 @@ def start_training():
             return jsonify(success=False, message="Failed to generate training data"), 500
     else:
         return jsonify(success=False, message="Failed to start training job"), 500
+    
+def on_new_file(filename: str):
+    """Handle new file detection."""
+    global new_files
+    new_files.append(filename)
+    print(f"New file detected: {filename} at {time.strftime('%H:%M:%S')}")
 
-@app.route('/training')
-def training_management():
-    """Manage handwriting recognition training."""
-    # Get training stats and jobs
-    success = request.args.get('success', None)
-    message = request.args.get('message', None)
-    
-    if success is not None:
-        success = success.lower() == 'true'
-    
-    with db.get_connection() as conn:
-        cursor = conn.cursor()
+    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+    doc_id = db.add_document(filepath)
+    if doc_id:
+        print(f"Added document to database with ID: {doc_id}")
+
+        # Try text extraction first
+        extracted = pdf_processor.process_document(filepath, doc_id, db)
         
-        # Get stats
-        cursor.execute("""
-            SELECT COUNT(*) as total_samples 
-            FROM handwriting_training_data
-        """)
-        total_samples = cursor.fetchone()['total_samples']
+        # Always run OCR processing regardless of text extraction result
+        print(f"Starting OCR processing for {filename}")
+        ocr_result = ocr_processor.process_document(filepath, doc_id, db)
         
-        cursor.execute("""
-            SELECT COUNT(*) as total_jobs 
-            FROM training_jobs 
-            WHERE status = 'completed'
-        """)
-        total_jobs = cursor.fetchone()['total_jobs']
-        
-        cursor.execute("""
-            SELECT AVG(accuracy_improvement) as avg_improvement 
-            FROM training_jobs 
-            WHERE status = 'completed' AND accuracy_improvement IS NOT NULL
-        """)
-        avg_improvement = cursor.fetchone()['avg_improvement'] or 0
-        
-        # Get recent jobs
-        cursor.execute("""
-            SELECT j.id, p.profile_name, j.status, j.started_at, j.completed_at,
-                   j.sample_count, j.accuracy_improvement
-            FROM training_jobs j
-            JOIN handwriting_profiles p ON j.profile_id = p.id
-            ORDER BY j.started_at DESC
-            LIMIT 10
-        """)
-        jobs = [dict(row) for row in cursor.fetchall()]
-        
-        stats = {
-            'total_samples': total_samples,
-            'total_jobs': total_jobs,
-            'avg_improvement': avg_improvement
-        }
-        
-    return render_template(
-        'training_management.html',
-        stats=stats,
-        jobs=jobs,
-        success=success,
-        message=message
-    )
+        if ocr_result:
+            print(f"OCR processing started for {filename}")
+        else:
+            print(f"Failed to start OCR processing for {filename}")
+            
+def on_file_removed(filename: str):
+    """Handle file removal."""
+    global removed_files
+    removed_files.append(filename)
+    print(f"File removed: {filename} at {time.strftime('%H:%M:%S')}")
+
+    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+    if db.mark_document_removed(filepath):
+        print(f"Marked document as removed in database: {filename}")
+    else:
+        print(f"Failed to mark document as removed in database: {filename}")
+
+@app.before_request
+def initialize_file_watcher():
+    """Initialize the file watcher before handling the first request."""
+    global file_watcher_initialized
+    if not file_watcher_initialized:
+        print(f"Initializing file watcher at {time.strftime('%H:%M:%S')}")
+        file_watcher.register_callback(on_new_file)
+        file_watcher.register_removal_callback(on_file_removed)
+        file_watcher.start()
+        file_watcher_initialized = True
+        print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
 
 if __name__ == '__main__':
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
-
+    
     try:
-        app.run(debug=True, use_reloader=False)  # Try disabling the reloader
+        app.run(debug=True, use_reloader=False)  # Disable reloader to prevent double initialization
     finally:
         cleanup()
-
-
-

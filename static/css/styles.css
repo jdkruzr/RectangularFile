@@ -45,17 +45,32 @@
 
 /* Reset button styles */
 .reset-button {
-    background-color: #ff9800;
-    color: white;
+    background-color: transparent;
     border: none;
-    padding: 3px 8px;
-    border-radius: 3px;
+    color: #007bff;
     cursor: pointer;
-    margin-left: 10px;
-    font-size: 0.8em;
+    margin-right: 10px;
+    font-size: 0.9em;
+    text-decoration: none;
 }
 .reset-button:hover {
-    background-color: #e68a00;
+    color: #0056b3;
+    text-decoration: underline;
+}
+
+/* Inspect button styles */
+.inspect-button {
+    background-color: transparent;
+    border: none;
+    color: #007bff;
+    cursor: pointer;
+    margin-right: 10px;
+    font-size: 0.9em;
+    text-decoration: none;
+}
+.inspect-button:hover {
+    color: #0056b3;
+    text-decoration: underline;
 }
 
 /* Status badge styles */
