@@ -98,6 +98,9 @@
             <dt>Confidence:</dt>
             <dd>{{ "%.1f"|format(document.confidence_score * 100) }}%</dd>
         </dl>
+        <div class="document-actions">
+            <a href="/training/correct/{{ document.id }}/1" class="button">Correct for Training</a>
+        </div>
     </div>
     
     <div class="document-viewer">
@@ -108,9 +111,9 @@
                         <strong>Page {{ page_num }}</strong>
                         {% if page.confidence %}
                             <span class="confidence">(Confidence: {{ "%.1f"|format(page.confidence * 100) }}%)</span>
-                        {% endif %}
-                    </div>
-                    
+        {% endif %}
+    </div>
+
                     <div class="page-text" id="page-{{ page_num }}">
                         {{ page.text }}
                     </div>

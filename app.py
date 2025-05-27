@@ -362,6 +362,136 @@ def on_file_removed(filename: str):
     else:
         print(f"Failed to mark document as removed in database: {filename}")
 
+@app.route('/training/correct/<int:doc_id>/<int:page_num>')
+def training_correction_page(doc_id, page_num):
+    """Show page for correcting OCR results for training."""
+    document = db.get_document_by_id(doc_id)
+    if not document:
+        return render_template('error.html', message="Document not found"), 404
+
+    # Get OCR text for the page
+    page_texts = db.get_document_text(doc_id)
+    if not page_texts or page_num not in page_texts:
+        return render_template('error.html', message="Page text not found"), 404
+
+    page_text = page_texts[page_num]
+    
+    return render_template(
+        'training_correction.html',
+        document=document,
+        page_num=page_num,
+        ocr_text=page_text.get('text', ''),
+        confidence=page_text.get('confidence', 0)
+    )
+
+@app.route('/training/submit', methods=['POST'])
+def submit_correction():
+    """Submit a corrected text sample for training."""
+    doc_id = request.form.get('doc_id', type=int)
+    page_num = request.form.get('page_num', type=int)
+    original_text = request.form.get('original_text', '')
+    corrected_text = request.form.get('corrected_text', '')
+    
+    if not all([doc_id, page_num, original_text, corrected_text]):
+        return jsonify(success=False, message="Missing required fields"), 400
+    
+    from handwriting_trainer import HandwritingTrainer
+    trainer = HandwritingTrainer(db)
+    
+    success = trainer.collect_training_sample(
+        doc_id=doc_id,
+        page_num=page_num,
+        original_text=original_text,
+        corrected_text=corrected_text
+    )
+    
+    if success:
+        return jsonify(success=True, message="Thank you for your correction!")
+    else:
+        return jsonify(success=False, message="Failed to save correction"), 500
+
+@app.route('/training/start', methods=['POST'])
+def start_training():
+    """Start a training job for handwriting recognition."""
+    profile_name = request.form.get('profile_name', 'default')
+    
+    from handwriting_trainer import HandwritingTrainer
+    trainer = HandwritingTrainer(db)
+    
+    job_id = trainer.start_training_job(profile_name)
+    
+    if job_id:
+        # In a real app, you'd queue this for background processing
+        # For simplicity, we'll just do it synchronously
+        if trainer.generate_training_data(job_id):
+            if trainer.execute_training(job_id):
+                return jsonify(success=True, message=f"Training completed successfully! Job ID: {job_id}")
+            else:
+                return jsonify(success=False, message="Training execution failed"), 500
+        else:
+            return jsonify(success=False, message="Failed to generate training data"), 500
+    else:
+        return jsonify(success=False, message="Failed to start training job"), 500
+
+@app.route('/training')
+def training_management():
+    """Manage handwriting recognition training."""
+    # Get training stats and jobs
+    success = request.args.get('success', None)
+    message = request.args.get('message', None)
+    
+    if success is not None:
+        success = success.lower() == 'true'
+    
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Get stats
+        cursor.execute("""
+            SELECT COUNT(*) as total_samples 
+            FROM handwriting_training_data
+        """)
+        total_samples = cursor.fetchone()['total_samples']
+        
+        cursor.execute("""
+            SELECT COUNT(*) as total_jobs 
+            FROM training_jobs 
+            WHERE status = 'completed'
+        """)
+        total_jobs = cursor.fetchone()['total_jobs']
+        
+        cursor.execute("""
+            SELECT AVG(accuracy_improvement) as avg_improvement 
+            FROM training_jobs 
+            WHERE status = 'completed' AND accuracy_improvement IS NOT NULL
+        """)
+        avg_improvement = cursor.fetchone()['avg_improvement'] or 0
+        
+        # Get recent jobs
+        cursor.execute("""
+            SELECT j.id, p.profile_name, j.status, j.started_at, j.completed_at,
+                   j.sample_count, j.accuracy_improvement
+            FROM training_jobs j
+            JOIN handwriting_profiles p ON j.profile_id = p.id
+            ORDER BY j.started_at DESC
+            LIMIT 10
+        """)
+        jobs = [dict(row) for row in cursor.fetchall()]
+        
+        stats = {
+            'total_samples': total_samples,
+            'total_jobs': total_jobs,
+            'avg_improvement': avg_improvement
+        }
+        
+    return render_template(
+        'training_management.html',
+        stats=stats,
+        jobs=jobs,
+        success=success,
+        message=message
+    )
+
 if __name__ == '__main__':
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
@@ -370,3 +500,6 @@ if __name__ == '__main__':
         app.run(debug=True, use_reloader=False)  # Try disabling the reloader
     finally:
         cleanup()
+
+
+

@@ -234,15 +234,34 @@ class HandwritingRecognizer:
         """
         self.logger.info("Performing handwriting recognition")
 
-        # Configure for handwriting
+        # First check if we have a trained model
+        trained_model_path = None
+        try:
+            from handwriting_trainer import HandwritingTrainer
+            trainer = HandwritingTrainer(self.db_manager if hasattr(self, 'db_manager') else None)
+            trained_model_path = trainer.get_trained_model_path("default")
+        except Exception as e:
+            self.logger.warning(f"Error checking for trained model: {e}")
+
+        # Configure for handwriting recognition
         config = '--psm 6 --oem 1'
+
+        # If we have a trained model, use it
+        tessdata_dir = None
+        if trained_model_path and os.path.exists(trained_model_path):
+            self.logger.info(f"Using trained model: {trained_model_path}")
+            # Extract parent directory from model path
+            tessdata_dir = os.path.dirname(trained_model_path)
+            # Add TESSDATA_PREFIX to environment for this process
+            os.environ['TESSDATA_PREFIX'] = tessdata_dir
+            self.logger.info(f"Set TESSDATA_PREFIX to {tessdata_dir}")
 
         # Try to recognize handwriting
         try:
-            # First try with specific handwriting settings
+            # Recognition with model if available
             text = pytesseract.image_to_string(
                 image,
-                lang='eng',
+                lang='eng',  # You'd use a custom language code for your trained model
                 config=config
             )
 
@@ -262,6 +281,11 @@ class HandwritingRecognizer:
             word_count = len([word for word in ocr_data['text'] if word.strip()])
 
             self.logger.info(f"Recognition complete: {word_count} words, confidence: {avg_confidence:.2f}")
+
+            # Clean up environment if we set it
+            if tessdata_dir:
+                if 'TESSDATA_PREFIX' in os.environ:
+                    del os.environ['TESSDATA_PREFIX']
 
             return text, avg_confidence, word_count
 
