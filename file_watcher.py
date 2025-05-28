@@ -10,7 +10,7 @@ class FileWatcher:
         self, 
         directory_path: str, 
         file_types: Optional[List[str]] = None,
-        polling_interval: float = 30.0
+        polling_interval: float = 60.0
     ):
         self.directory_path = os.path.abspath(directory_path)
         self.file_types = file_types or []

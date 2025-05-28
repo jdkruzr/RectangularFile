@@ -4,3 +4,5 @@ watchdog>=2.1.0
 pytesseract>=0.3.8
 pdf2image>=1.16.0
 Pillow>=9.0.0
+torch
+transformers

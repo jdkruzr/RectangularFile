@@ -11,7 +11,7 @@ import atexit
 import sys
 from functools import partial
 import multiprocessing
-from handwriting_recognition import HandwritingRecognizer
+from qwen_processor import QwenVLProcessor
 
 app = Flask(__name__)
 
@@ -20,7 +20,7 @@ DEFAULT_POLLING_INTERVAL = 30.0
 file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTERVAL)
 db = DatabaseManager("pdf_index.db")
 pdf_processor = PDFProcessor()
-ocr_processor = HandwritingRecognizer()
+ocr_processor = QwenVLProcessor()
 
 new_files: List[str] = []
 removed_files: List[str] = []
