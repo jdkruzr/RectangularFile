@@ -8,3 +8,4 @@ torch
 transformers
 bitsandbytes
 accelerate
+torchvision
