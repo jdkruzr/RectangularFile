@@ -8,6 +8,7 @@ import time
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, BitsAndBytesConfig
+from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
@@ -75,7 +76,7 @@ class QwenVLProcessor:
                     bnb_4bit_quant_type="nf4"
                 )
                 
-                self.model = AutoModelForCausalLM.from_pretrained(
+                self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                     self.model_name,
                     torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                     device_map="auto",
