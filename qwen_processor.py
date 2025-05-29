@@ -7,7 +7,7 @@ import tempfile
 import time
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, BitsAndBytesConfig
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
@@ -35,6 +35,9 @@ class QwenVLProcessor:
         self.tokenizer = None
         self.processor = None
         self.model = None
+
+        # Set custom cache directory
+        os.environ['TRANSFORMERS_CACHE'] = '/mnt/rectangularfile/qwencache'
     
     def setup_logging(self):
         """Configure logging for the processor."""
@@ -66,11 +69,18 @@ class QwenVLProcessor:
                 )
                 
                 # Load model with appropriate dtype based on device
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_quant_type="nf4"
+                )
+                
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
                     torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                     device_map="auto",
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    quantization_config=quantization_config
                 )
                 
                 # Put model in evaluation mode
@@ -85,15 +95,14 @@ class QwenVLProcessor:
         return True
     
     def process_document(
-        self, 
-        pdf_path: Path, 
-        doc_id: int, 
+        self,
+        pdf_path: Path,
+        doc_id: int,
         db_manager: DatabaseManager,
         dpi: int = 300
     ) -> bool:
         """
         Process a PDF document for text recognition using Qwen2-VL.
-        
         Args:
             pdf_path: Path to the PDF file
             doc_id: Database ID of the document
@@ -176,7 +185,6 @@ class QwenVLProcessor:
                     text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
                     self.logger.info(f"Text sample: {text_sample}...")
                     self.logger.info(f"Recognized {word_count} words with confidence {confidence:.2f}")
-
                     # Store the OCR result
                     page_data[page_num] = {
                         'text': text,
@@ -211,7 +219,6 @@ class QwenVLProcessor:
                     )
 
                 return success
-
         except Exception as e:
             error_message = f"Error processing document: {str(e)}"
             self.logger.error(f"Error in processing document {doc_id}: {e}")
