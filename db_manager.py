@@ -237,7 +237,10 @@ class DatabaseManager:
     def add_document(self, filepath: Path) -> Optional[int]:
         """Add a new PDF document to the database or resurrect if marked as removed."""
         try:
-            relative_path = str(filepath.relative_to(Path.cwd()))
+            # Instead of computing a relative path, just use the absolute path
+            # This will work regardless of where the file is located
+            absolute_path = str(filepath.absolute())
+            filename = filepath.name
             file_stats = filepath.stat()
             
             with self.get_connection() as conn:
@@ -247,7 +250,7 @@ class DatabaseManager:
                 cursor.execute("""
                     SELECT id FROM pdf_documents 
                     WHERE relative_path = ? AND processing_status = 'removed'
-                """, (relative_path,))
+                """, (absolute_path,))
                 
                 existing = cursor.fetchone()
                 if existing:
@@ -282,8 +285,8 @@ class DatabaseManager:
                         processing_status
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    filepath.name,
-                    relative_path,
+                    filename,
+                    absolute_path,  # Store absolute path instead of relative path
                     file_stats.st_size,
                     datetime.fromtimestamp(file_stats.st_ctime),
                     datetime.fromtimestamp(file_stats.st_mtime),
@@ -301,7 +304,8 @@ class DatabaseManager:
 
     def mark_document_removed(self, filepath: Path) -> bool:
         try:
-            relative_path = str(filepath.relative_to(Path.cwd()))
+            # Use absolute path
+            absolute_path = str(filepath.absolute())
 
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -311,7 +315,7 @@ class DatabaseManager:
                         last_indexed_at = ?
                     WHERE relative_path = ?
                     RETURNING id
-                """, (datetime.now(), relative_path))
+                """, (datetime.now(), absolute_path))
 
                 result = cursor.fetchone()
                 if result:
