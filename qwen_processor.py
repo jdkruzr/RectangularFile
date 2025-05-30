@@ -13,6 +13,9 @@ from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
 
+# Increase the PIL image size limit to prevent DecompressionBombWarning
+Image.MAX_IMAGE_PIXELS = 200000000  # Increased limit for large images
+
 class QwenVLProcessor:
     """Process PDF documents using Qwen2-VL-7B for text recognition."""
     
@@ -77,7 +80,7 @@ class QwenVLProcessor:
                         can_use_quantization = True
                 except (ImportError, AttributeError):
                     self.logger.warning("bitsandbytes not available for quantization, using full precision")
-
+                
                 # Load model with appropriate configuration
                 if can_use_quantization:
                     self.logger.info("Using 4-bit quantization with CUDA")
@@ -86,7 +89,7 @@ class QwenVLProcessor:
                         bnb_4bit_compute_dtype=torch.float16,
                         bnb_4bit_quant_type="nf4"
                     )
-
+                    
                     self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                         self.model_name,
                         torch_dtype=torch.float16,
@@ -103,7 +106,7 @@ class QwenVLProcessor:
                         trust_remote_code=True,
                         low_cpu_mem_usage=True,  # Help with memory usage
                     )
-
+                
                 # Put model in evaluation mode
                 self.model.eval()
                 
@@ -120,7 +123,7 @@ class QwenVLProcessor:
         pdf_path: Path,
         doc_id: int,
         db_manager: DatabaseManager,
-        dpi: int = 300
+        dpi: int = 150  # Changed from 300 to 150 for better performance
     ) -> bool:
         """
         Process a PDF document for text recognition using Qwen2-VL.
@@ -166,6 +169,25 @@ class QwenVLProcessor:
                         fmt='jpg'
                     )
                     self.logger.info(f"Converted PDF to {len(images)} images")
+                    
+                    # Process images - resize large ones
+                    processed_images = []
+                    for img in images:
+                        # Check if image is too large
+                        if img.width * img.height > 4000000:  # 4 million pixels
+                            # Calculate new dimensions keeping aspect ratio
+                            scale_factor = (4000000 / (img.width * img.height)) ** 0.5
+                            new_width = int(img.width * scale_factor)
+                            new_height = int(img.height * scale_factor)
+                            
+                            # Resize image
+                            self.logger.info(f"Resizing large image from {img.width}x{img.height} to {new_width}x{new_height}")
+                            img = img.resize((new_width, new_height), Image.LANCZOS)
+                        
+                        processed_images.append(img)
+                    
+                    self.logger.info(f"Prepared {len(processed_images)} images for processing")
+                    
                 except Exception as pdf_error:
                     self.logger.error(f"Error converting PDF to images: {pdf_error}")
                     db_manager.update_processing_progress(
@@ -173,7 +195,7 @@ class QwenVLProcessor:
                     )
                     return False
 
-                if not images:
+                if not processed_images:
                     self.logger.warning(f"No images extracted from PDF {doc_id}")
                     db_manager.update_processing_progress(
                         doc_id, 0.0, "No images could be extracted from PDF"
@@ -182,17 +204,17 @@ class QwenVLProcessor:
 
                 # Process each page
                 page_data = {}
-                progress_per_page = 80.0 / len(images)
+                progress_per_page = 80.0 / len(processed_images)
 
-                for i, image in enumerate(images):
+                for i, image in enumerate(processed_images):
                     page_num = i + 1
                     current_progress = 20.0 + (i * progress_per_page)
 
-                    self.logger.info(f"Processing page {page_num}/{len(images)}")
+                    self.logger.info(f"Processing page {page_num}/{len(processed_images)}")
                     db_manager.update_processing_progress(
                         doc_id,
                         current_progress,
-                        f"Recognizing text on page {page_num}/{len(images)}"
+                        f"Recognizing text on page {page_num}/{len(processed_images)}"
                     )
 
                     # Process the image with Qwen2-VL
