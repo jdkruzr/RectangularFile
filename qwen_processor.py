@@ -69,21 +69,41 @@ class QwenVLProcessor:
                     trust_remote_code=True
                 )
                 
-                # Load model with appropriate dtype based on device
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_quant_type="nf4"
-                )
-                
-                self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                    self.model_name,
-                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-                    device_map="auto",
-                    trust_remote_code=True,
-                    quantization_config=quantization_config
-                )
-                
+                # Check if we can use quantization
+                can_use_quantization = False
+                try:
+                    import bitsandbytes
+                    if torch.cuda.is_available():
+                        can_use_quantization = True
+                except (ImportError, AttributeError):
+                    self.logger.warning("bitsandbytes not available for quantization, using full precision")
+
+                # Load model with appropriate configuration
+                if can_use_quantization:
+                    self.logger.info("Using 4-bit quantization with CUDA")
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                        bnb_4bit_quant_type="nf4"
+                    )
+
+                    self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                        self.model_name,
+                        torch_dtype=torch.float16,
+                        device_map="auto",
+                        trust_remote_code=True,
+                        quantization_config=quantization_config
+                    )
+                else:
+                    self.logger.info("Using CPU without quantization")
+                    # For CPU-only systems, don't use quantization
+                    self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                        self.model_name,
+                        device_map="auto",
+                        trust_remote_code=True,
+                        low_cpu_mem_usage=True,  # Help with memory usage
+                    )
+
                 # Put model in evaluation mode
                 self.model.eval()
                 
