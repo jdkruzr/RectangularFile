@@ -19,7 +19,7 @@ Image.MAX_IMAGE_PIXELS = 200000000  # Increased limit for large images
 class QwenVLProcessor:
     """Process PDF documents using Qwen2-VL-7B for text recognition."""
     
-    def __init__(self, model_name: str = "Qwen/Qwen2-VL-7B", use_cache: bool = True):
+    def __init__(self, model_name: str = "Qwen/Qwen2-VL-2B", use_cache: bool = True):
         """
         Initialize the Qwen VL processor.
         
@@ -104,7 +104,9 @@ class QwenVLProcessor:
                         self.model_name,
                         device_map="auto",
                         trust_remote_code=True,
-                        low_cpu_mem_usage=True,  # Help with memory usage
+                        low_cpu_mem_usage=True,
+                        torch_dtype=torch.float32,  # Use float32 for CPU
+                        offload_folder="/mnt/rectangularfile/qwencache/offload"  # Helps with memory management
                     )
                 
                 # Put model in evaluation mode
@@ -236,6 +238,12 @@ class QwenVLProcessor:
                         'char_count': char_count,
                         'processed_at': datetime.now()
                     }
+
+                    # Add explicit cleanup after each page to manage memory
+                    if i < len(processed_images) - 1:  # If not the last page
+                        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                        import gc
+                        gc.collect()  # Force garbage collection between pages
 
                 # Store results in database
                 self.logger.info(f"Storing recognition results for {len(page_data)} pages")
