@@ -15,7 +15,7 @@ from qwen_processor import QwenVLProcessor
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '/mnt/rectangularfile/documents')
 DEFAULT_POLLING_INTERVAL = 30.0
 file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTERVAL)
 db = DatabaseManager("pdf_index.db")
