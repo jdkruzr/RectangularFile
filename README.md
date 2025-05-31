@@ -1,7 +1,7 @@
 # Rectangular File
 Rectangular File is a document management system originally intended for use with Onyx Boox e-ink tablets, to enhance your ability to search for text in your handwriting and build an index of recognized text for later use. Supernote does this with their handwriting search functionality, but Boox devices start over every time you start a new search. This, how you say, Le Sucks.
 
-RF is a Flask application which uses Tesseract OCR with handwriting-specific models that you can train to be more accurate for your handwriting style. You deploy it on a server somewhere, tell your tablet devices to dump their data into a folder on the server -- on Boox this is just an auto-PDF-upload feature -- and RF will ingest them, perform text extraction and handwriting recognition, and then add the data to its searchable index, then show you where it got the search results from when it finds what you're looking for.
+RF is a Flask application which uses the Qwen2-VL-2B LLM to analyze and transcribe the contents of your handwritten notes. You deploy it on a server somewhere, tell your tablet devices to dump their data into a folder on the server -- on Boox this is just an auto-PDF-upload feature -- and RF will ingest them, perform text extraction and handwriting recognition, and then add the data to its searchable index, then show you where it got the search results from when it finds what you're looking for.
 
 Eventually we'd also like to add features like wordclouds, etc.
 
