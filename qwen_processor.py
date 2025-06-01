@@ -288,24 +288,26 @@ class QwenVLProcessor:
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
         """
         Process a single image with Qwen2-VL using a sliding window approach.
-        
-        Args:
-            image: PIL Image to process
-            
-        Returns:
-            Tuple of (recognized_text, confidence_score)
         """
         try:
-            # Window parameters
-            window_height = 1000  # Height of each window
-            window_width = 1000   # Width of each window
-            overlap = 100         # Overlap between windows to avoid cutting text
+            # Window parameters - adjusted to match known working dimensions
+            window_height = 1500  # Height of each window
+            window_width = 1500   # Width of each window
+            overlap = 150         # Overlap between windows (10% of window size)
+            
+            # Log original image size
+            self.logger.info(f"Original image size: {image.width}x{image.height}")
+            
+            # If image is smaller than window size, process whole image
+            if image.width <= window_width and image.height <= window_height:
+                self.logger.info("Image smaller than window size, processing as single window")
+                return self._process_single_window(image, "Please transcribe all handwritten text in this image, preserving layout:")
             
             # Calculate number of windows needed
             n_windows_y = max(1, (image.height - overlap) // (window_height - overlap))
             n_windows_x = max(1, (image.width - overlap) // (window_width - overlap))
             
-            self.logger.info(f"Processing image {image.width}x{image.height} with {n_windows_x}x{n_windows_y} windows")
+            self.logger.info(f"Processing image with {n_windows_x}x{n_windows_y} windows")
             
             all_text_parts = []
             
@@ -321,58 +323,37 @@ class QwenVLProcessor:
                     # Extract window
                     window = image.crop((x_start, y_start, x_end, y_end))
                     
-                    self.logger.info(f"Processing window at ({x_start},{y_start}) to ({x_end},{y_end})")
+                    # Resize window to match model's expected dimensions
+                    aspect_ratio = window.width / window.height
+                    if aspect_ratio > 1:
+                        new_width = 1500
+                        new_height = int(1500 / aspect_ratio)
+                    else:
+                        new_height = 1500
+                        new_width = int(1500 * aspect_ratio)
+                    
+                    window = window.resize((new_width, new_height), Image.LANCZOS)
+                    
+                    self.logger.info(f"Processing window at ({x_start},{y_start}) to ({x_end},{y_end}), resized to {new_width}x{new_height}")
                     
                     # Process window
-                    prompt = f"Please transcribe any handwritten text in this section of the image, preserving layout. This is part {x+1},{y+1} of a larger image:"
+                    prompt = f"Please transcribe any handwritten text in this section of the image, preserving layout. This is part {x+1},{y+1} of {n_windows_x*n_windows_y}:"
                     
-                    # Prepare inputs
-                    inputs = self.processor(
-                        text=prompt,
-                        images=window,
-                        return_tensors="pt"
-                    ).to(self.device)
-                    
-                    # Generate transcription
-                    with torch.no_grad():
-                        if self.device == "cuda":
-                            torch.cuda.empty_cache()
-                        
-                        outputs = self.model.generate(
-                            **inputs,
-                            max_new_tokens=500,
-                            do_sample=False,
-                            temperature=1.0
-                        )
-                    
-                    # Decode the output
-                    generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-                    
-                    # Clean up window processing
-                    del inputs, outputs
-                    if self.device == "cuda":
-                        torch.cuda.empty_cache()
-                    
-                    # Extract text from response
-                    if prompt in generated_text:
-                        text = generated_text.replace(prompt, "").strip()
-                    else:
-                        parts = generated_text.split(":")
-                        text = parts[-1].strip() if len(parts) > 1 else generated_text.strip()
+                    text, _ = self._process_single_window(window, prompt)
                     
                     if text:
-                        # Store position information with the text
                         all_text_parts.append({
                             'text': text,
                             'position': (x_start, y_start, x_end, y_end)
                         })
+                    
+                    # Clear GPU cache between windows
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
             
-            # Combine text parts based on position
+            # Combine text parts
             if all_text_parts:
-                # Sort text parts by y position, then x position
                 all_text_parts.sort(key=lambda p: (p['position'][1], p['position'][0]))
-                
-                # Combine text with appropriate spacing
                 combined_text = ""
                 last_y = -1
                 
@@ -380,7 +361,6 @@ class QwenVLProcessor:
                     text = part['text']
                     y_start = part['position'][1]
                     
-                    # Add line breaks between different y positions
                     if last_y != -1 and abs(y_start - last_y) > overlap:
                         combined_text += "\n\n"
                     elif last_y != -1:
@@ -391,9 +371,51 @@ class QwenVLProcessor:
                 
                 self.logger.info(f"Successfully combined text from {len(all_text_parts)} windows")
                 return combined_text.strip(), 0.95
-            else:
-                return "", 0.0
-                
+            
+            return "", 0.0
+            
         except Exception as e:
             self.logger.error(f"Error processing image: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return "", 0.0
+
+    def _process_single_window(self, image: Image.Image, prompt: str) -> Tuple[str, float]:
+        """Helper method to process a single window of the image."""
+        try:
+            # Prepare inputs
+            inputs = self.processor(
+                text=prompt,
+                images=image,
+                return_tensors="pt"
+            ).to(self.device)
+            
+            # Generate transcription
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    do_sample=False,
+                    temperature=1.0
+                )
+            
+            # Decode the output
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Clean up
+            del inputs, outputs
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+            
+            # Extract text from response
+            if prompt in generated_text:
+                text = generated_text.replace(prompt, "").strip()
+            else:
+                parts = generated_text.split(":")
+                text = parts[-1].strip() if len(parts) > 1 else generated_text.strip()
+            
+            return text, 0.95
+            
+        except Exception as e:
+            self.logger.error(f"Error processing window: {e}")
             return "", 0.0
