@@ -87,30 +87,18 @@ class QwenVLProcessor:
                 
                 # Optimize model loading based on device
                 if self.device == "cuda":
-                    # For GPU with 6GB VRAM, use FP16 for 2B model or quantization for larger models
-                    if "7B" in self.model_name:
-                        # For 7B model, use 8-bit quantization
-                        self.logger.info("Loading 7B model with 8-bit quantization")
-                        quantization_config = BitsAndBytesConfig(
-                            load_in_8bit=True,
-                            llm_int8_threshold=6.0
-                        )
-                        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                            self.model_name,
-                            torch_dtype=torch.float16,
-                            device_map="auto",
-                            trust_remote_code=True,
-                            quantization_config=quantization_config
-                        )
-                    else:
-                        # For 2B model, FP16 is sufficient
-                        self.logger.info("Loading model with FP16 precision")
-                        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                            self.model_name,
-                            torch_dtype=torch.float16,
-                            device_map="auto",
-                            trust_remote_code=True
-                        )
+                    # Use 8-bit quantization for all models on GPU
+                    self.logger.info("Loading model with INT8 quantization")
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_8bit=True,
+                        llm_int8_threshold=6.0
+                    )
+                    self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                        self.model_name,
+                        device_map="auto",
+                        trust_remote_code=True,
+                        quantization_config=quantization_config
+                    )
                 else:
                     # For CPU, use default settings
                     self.logger.info("Loading model for CPU inference")
