@@ -286,94 +286,74 @@ class QwenVLProcessor:
             return False
     
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
-        """
-        Process a single image with Qwen2-VL using a sliding window approach.
-        """
+        """Process a single image with Qwen2-VL."""
         try:
-            # Window parameters - adjusted to match known working dimensions
-            window_height = 1500  # Height of each window
-            window_width = 1500   # Width of each window
-            overlap = 150         # Overlap between windows (10% of window size)
+            self.logger.info(f"Processing image of size {image.width}x{image.height}")
             
-            # Log original image size
-            self.logger.info(f"Original image size: {image.width}x{image.height}")
+            prompt = "Please transcribe all handwritten text in this image, preserving layout and line breaks:"
             
-            # If image is smaller than window size, process whole image
-            if image.width <= window_width and image.height <= window_height:
-                self.logger.info("Image smaller than window size, processing as single window")
-                return self._process_single_window(image, "Please transcribe all handwritten text in this image, preserving layout:")
+            # Process with explicit processor settings and logging
+            self.logger.info("Preparing inputs with processor...")
+            inputs = self.processor(
+                text=prompt,
+                images=image,
+                return_tensors="pt",
+                use_fast=True,
+                padding=True
+            )
             
-            # Calculate number of windows needed
-            n_windows_y = max(1, (image.height - overlap) // (window_height - overlap))
-            n_windows_x = max(1, (image.width - overlap) // (window_width - overlap))
+            # Log processor output details
+            self.logger.info("Processor output details:")
+            for key, value in inputs.items():
+                if hasattr(value, 'shape'):
+                    self.logger.info(f"- {key}: shape {value.shape}")
+                elif isinstance(value, list):
+                    self.logger.info(f"- {key}: list of length {len(value)}")
+                else:
+                    self.logger.info(f"- {key}: type {type(value)}")
             
-            self.logger.info(f"Processing image with {n_windows_x}x{n_windows_y} windows")
+            # Move to device
+            inputs = inputs.to(self.device)
+            self.logger.info(f"Moved inputs to {self.device}")
             
-            all_text_parts = []
+            # Log memory usage before generation
+            self._log_memory_usage()
             
-            # Process each window
-            for y in range(n_windows_y):
-                for x in range(n_windows_x):
-                    # Calculate window coordinates
-                    x_start = x * (window_width - overlap)
-                    y_start = y * (window_height - overlap)
-                    x_end = min(x_start + window_width, image.width)
-                    y_end = min(y_start + window_height, image.height)
-                    
-                    # Extract window
-                    window = image.crop((x_start, y_start, x_end, y_end))
-                    
-                    # Resize window to match model's expected dimensions
-                    aspect_ratio = window.width / window.height
-                    if aspect_ratio > 1:
-                        new_width = 1500
-                        new_height = int(1500 / aspect_ratio)
-                    else:
-                        new_height = 1500
-                        new_width = int(1500 * aspect_ratio)
-                    
-                    window = window.resize((new_width, new_height), Image.LANCZOS)
-                    
-                    self.logger.info(f"Processing window at ({x_start},{y_start}) to ({x_end},{y_end}), resized to {new_width}x{new_height}")
-                    
-                    # Process window
-                    prompt = f"Please transcribe any handwritten text in this section of the image, preserving layout. This is part {x+1},{y+1} of {n_windows_x*n_windows_y}:"
-                    
-                    text, _ = self._process_single_window(window, prompt)
-                    
-                    if text:
-                        all_text_parts.append({
-                            'text': text,
-                            'position': (x_start, y_start, x_end, y_end)
-                        })
-                    
-                    # Clear GPU cache between windows
-                    if self.device == "cuda":
-                        torch.cuda.empty_cache()
+            # Generate transcription
+            self.logger.info("Generating transcription...")
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    do_sample=False,
+                    temperature=1.0
+                )
             
-            # Combine text parts
-            if all_text_parts:
-                all_text_parts.sort(key=lambda p: (p['position'][1], p['position'][0]))
-                combined_text = ""
-                last_y = -1
+            # Log generation completion
+            self.logger.info("Generation completed")
+            
+            # Decode the output
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Clean up
+            del inputs, outputs
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                self._log_memory_usage()
+            
+            # Extract text part
+            if prompt in generated_text:
+                text = generated_text.replace(prompt, "").strip()
+            else:
+                parts = generated_text.split(":")
+                text = parts[-1].strip() if len(parts) > 1 else generated_text.strip()
+            
+            # Log result summary
+            text_preview = text[:100] + "..." if text else "[No text recognized]"
+            self.logger.info(f"Recognized text preview: {text_preview}")
+            
+            return text, 0.95 if text else 0.0
                 
-                for part in all_text_parts:
-                    text = part['text']
-                    y_start = part['position'][1]
-                    
-                    if last_y != -1 and abs(y_start - last_y) > overlap:
-                        combined_text += "\n\n"
-                    elif last_y != -1:
-                        combined_text += " "
-                    
-                    combined_text += text
-                    last_y = y_start
-                
-                self.logger.info(f"Successfully combined text from {len(all_text_parts)} windows")
-                return combined_text.strip(), 0.95
-            
-            return "", 0.0
-            
         except Exception as e:
             self.logger.error(f"Error processing image: {e}")
             import traceback
