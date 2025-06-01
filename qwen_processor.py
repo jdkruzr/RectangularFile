@@ -6,6 +6,9 @@ from pathlib import Path
 import tempfile
 import time
 
+# Set CUDA memory allocation configuration
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 import torch
 from transformers import (
     AutoTokenizer, 
@@ -38,12 +41,19 @@ class QwenVLProcessor:
         self.model_name = model_name
         self.use_cache = use_cache
         
+        # Memory management settings
+        self.max_image_dimension = 1500  # Max dimension for input images
+        self.target_image_pixels = 1500 * 1500  # Target total pixels
+        
         # Check for GPU availability and set device
         if torch.cuda.is_available():
             self.device = "cuda"
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             self.logger.info(f"Using GPU: {gpu_name} with {gpu_memory:.2f} GB VRAM")
+            
+            # Log initial GPU memory state
+            self._log_memory_usage(note="Initial GPU memory state")
         else:
             self.device = "cpu"
             self.logger.info("No GPU detected, using CPU")
@@ -65,236 +75,55 @@ class QwenVLProcessor:
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
     
-    def _log_memory_usage(self):
-        """Log current GPU memory usage."""
+    def _log_memory_usage(self, note: str = ""):
+        """Log current GPU memory usage with optional note."""
         if torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated() / (1024**3)
             reserved = torch.cuda.memory_reserved() / (1024**3)
-            self.logger.info(f"GPU Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
+            free = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) - allocated
+            
+            memory_info = (
+                f"GPU Memory: {allocated:.2f} GB allocated, "
+                f"{reserved:.2f} GB reserved, "
+                f"{free:.2f} GB free"
+            )
+            if note:
+                memory_info = f"{note}: {memory_info}"
+            
+            self.logger.info(memory_info)
     
-    def _load_model(self):
-        """Load the model, tokenizer, and processor if not already loaded."""
-        if self.model is None:
-            try:
-                self.logger.info(f"Loading model: {self.model_name}")
-                start_time = time.time()
-                
-                # Load tokenizer and processor
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    self.model_name, 
-                    trust_remote_code=True
-                )
-                self.processor = AutoProcessor.from_pretrained(
-                    self.model_name,
-                    trust_remote_code=True
-                )
-                
-                # Ensure tokenizer has pad and eos tokens if needed
-                if self.tokenizer.pad_token is None:
-                    self.tokenizer.pad_token = self.tokenizer.eos_token
-                
-                # Optimize model loading based on device
-                if self.device == "cuda":
-                    self.logger.info("Loading model with INT8 quantization")
-                    
-                    # Primary configuration: INT8 quantization for memory efficiency
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_8bit=True,
-                        llm_int8_threshold=6.0
-                    )
-                    model_kwargs = {
-                        "device_map": "auto",
-                        "trust_remote_code": True,
-                        "quantization_config": quantization_config
-                    }
-                    
-                    # Alternative configuration with Flash Attention (commented)
-                    # Note: Flash Attention 2 typically works with FP16/BF16, not INT8
-                    # Uncomment below and comment above if prioritizing speed over memory
-                    """
-                    model_kwargs = {
-                        "device_map": "auto",
-                        "trust_remote_code": True,
-                        "torch_dtype": torch.float16,
-                        "attn_implementation": "flash_attention_2"
-                    }
-                    """
-                else:
-                    self.logger.info("Loading model for CPU inference")
-                    model_kwargs = {
-                        "device_map": "auto",
-                        "trust_remote_code": True,
-                        "low_cpu_mem_usage": True
-                    }
-                
-                # Load the model with correct class
-                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    self.model_name,
-                    **model_kwargs
-                )
-                
-                # Put model in evaluation mode
-                self.model.eval()
-                
-                # Log memory usage
-                self._log_memory_usage()
-                
-                elapsed = time.time() - start_time
-                self.logger.info(f"Model loaded successfully in {elapsed:.2f} seconds")
-                return True
-                
-            except Exception as e:
-                self.logger.error(f"Error loading model: {e}")
-                import traceback
-                self.logger.error(f"Traceback: {traceback.format_exc()}")
-                return False
-        return True
-    
-    def process_document(
-        self,
-        pdf_path: Path,
-        doc_id: int,
-        db_manager: DatabaseManager,
-        dpi: int = 150  # Good balance for GPU processing
-    ) -> bool:
+    def _resize_image_if_needed(self, image: Image.Image) -> Image.Image:
         """
-        Process a PDF document for text recognition using Qwen2.5-VL.
+        Resize image if it exceeds memory-safe dimensions.
         
-        Args:
-            pdf_path: Path to the PDF file
-            doc_id: Database ID of the document
-            db_manager: Database manager instance
-            dpi: DPI for PDF to image conversion
-            
-        Returns:
-            bool: True if processing was successful
+        The 3B model requires more memory than the 2B version, so we need to be
+        more aggressive with image resizing to prevent OOM errors.
         """
-        try:
-            self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
-            self.logger.info(f"Processing file: {pdf_path}")
+        original_pixels = image.width * image.height
+        if original_pixels <= self.target_image_pixels:
+            return image
             
-            # Load model if not already loaded
-            if not self._load_model():
-                self.logger.error("Failed to load model")
-                db_manager.update_processing_progress(
-                    doc_id, 0.0, "Failed to load model"
-                )
-                return False
-            
-            # Mark document as being processed
-            if not db_manager.mark_ocr_started(doc_id):
-                self.logger.error(f"Failed to mark document {doc_id} for processing")
-                return False
-            
-            # Convert PDF to images
-            self.logger.info(f"Converting PDF to images at {dpi} DPI")
-            
-            with tempfile.TemporaryDirectory() as temp_dir:
-                db_manager.update_processing_progress(
-                    doc_id, 10.0, "Converting PDF to images"
-                )
+        # Calculate new dimensions maintaining aspect ratio
+        ratio = (self.target_image_pixels / original_pixels) ** 0.5
+        new_width = int(image.width * ratio)
+        new_height = int(image.height * ratio)
+        
+        self.logger.info(
+            f"Resizing image from {image.width}x{image.height} "
+            f"({original_pixels:,} pixels) to {new_width}x{new_height} "
+            f"({new_width * new_height:,} pixels) to conserve memory"
+        )
+        
+        return image.resize((new_width, new_height), Image.LANCZOS)
 
-                try:
-                    images = convert_from_path(
-                        pdf_path,
-                        dpi=dpi,
-                        output_folder=temp_dir,
-                        fmt='jpg'
-                    )
-                    self.logger.info(f"Converted PDF to {len(images)} images")
-                    processed_images = images  # No resizing needed for Qwen2.5
-                    
-                except Exception as pdf_error:
-                    self.logger.error(f"Error converting PDF to images: {pdf_error}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, f"Error converting PDF to images: {str(pdf_error)}"
-                    )
-                    return False
-
-                if not processed_images:
-                    self.logger.warning(f"No images extracted from PDF {doc_id}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, "No images could be extracted from PDF"
-                    )
-                    return False
-
-                # Process each page
-                page_data = {}
-                progress_per_page = 80.0 / len(processed_images)
-
-                for i, image in enumerate(processed_images):
-                    page_num = i + 1
-                    current_progress = 20.0 + (i * progress_per_page)
-
-                    self.logger.info(f"Processing page {page_num}/{len(processed_images)}")
-                    db_manager.update_processing_progress(
-                        doc_id,
-                        current_progress,
-                        f"Recognizing text on page {page_num}/{len(processed_images)}"
-                    )
-
-                    # Process the image
-                    text, confidence = self._process_image(image)
-                    
-                    # Count words and characters
-                    word_count = len(text.split()) if text else 0
-                    char_count = len(text) if text else 0
-
-                    # Log sample of recognized text
-                    text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
-                    self.logger.info(f"Text sample: {text_sample}...")
-                    self.logger.info(f"Recognized {word_count} words with confidence {confidence:.2f}")
-                    
-                    # Store the OCR result
-                    page_data[page_num] = {
-                        'text': text,
-                        'confidence': confidence,
-                        'word_count': word_count,
-                        'char_count': char_count,
-                        'processed_at': datetime.now()
-                    }
-                    
-                    # Clear GPU cache between pages if using CUDA
-                    if self.device == "cuda":
-                        torch.cuda.empty_cache()
-
-                # Store results in database
-                self.logger.info(f"Storing recognition results for {len(page_data)} pages")
-                db_manager.update_processing_progress(
-                    doc_id, 90.0, "Storing recognized text"
-                )
-            
-                success = db_manager.store_ocr_results(doc_id, page_data)
-
-                if success:
-                    total_words = sum(page['word_count'] for page in page_data.values())
-                    avg_conf = sum(page['confidence'] for page in page_data.values()) / len(page_data) if page_data else 0
-
-                    self.logger.info(
-                        f"Successfully processed document {doc_id}\n"
-                        f"Total words: {total_words}\n"
-                        f"Average confidence: {avg_conf:.2f}\n"
-                        f"Pages processed: {len(page_data)}"
-                    )
-                else:
-                    self.logger.error(f"Failed to store results for document {doc_id}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, "Failed to store recognition results"
-                    )
-
-                return success
-        except Exception as e:
-            error_message = f"Error processing document: {str(e)}"
-            self.logger.error(f"Error in processing document {doc_id}: {e}")
-            import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            db_manager.update_processing_progress(doc_id, 0.0, error_message)
-            return False
-    
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
         """Process a single image with Qwen2.5-VL."""
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
+            self._log_memory_usage("Before image processing")
+            
+            # Resize image if needed to prevent OOM
+            image = self._resize_image_if_needed(image)
             
             # Qwen2.5-VL-Instruct specific prompt format
             prompt = """<|im_start|>system
@@ -325,12 +154,10 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
                 else:
                     self.logger.info(f"- {key}: type {type(value)}")
             
-            # Move to device
+            # Move to device and log memory
             inputs = inputs.to(self.device)
             self.logger.info(f"Moved inputs to {self.device}")
-            
-            # Log memory usage before generation
-            self._log_memory_usage()
+            self._log_memory_usage("After moving inputs to GPU")
             
             # Generate transcription
             self.logger.info("Generating transcription...")
@@ -344,17 +171,17 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
                     eos_token_id=self.tokenizer.eos_token_id
                 )
             
-            # Log generation completion
+            self._log_memory_usage("After generation")
             self.logger.info("Generation completed")
             
             # Decode the output
-            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=False)  # Keep special tokens
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=False)
             
-            # Clean up
+            # Clean up and force memory release
             del inputs, outputs
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-                self._log_memory_usage()
+                self._log_memory_usage("After cleanup")
             
             # Extract text between assistant's response and end token
             response_start = generated_text.find("<|im_start|>assistant")
