@@ -16,9 +16,9 @@ from db_manager import DatabaseManager
 Image.MAX_IMAGE_PIXELS = 200000000
 
 class QwenVLProcessor:
-    """Process PDF documents using Qwen-2.5-VL-3B-Instruct for text recognition."""
+    """Process PDF documents using Qwen2.5-VL-3B-Instruct for text recognition."""
     
-    def __init__(self, model_name: str = "Qwen/Qwen-2.5-VL-3B-Instruct", use_cache: bool = True):
+    def __init__(self, model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", use_cache: bool = True):
         """
         Initialize the Qwen VL processor with GPU support.
         
