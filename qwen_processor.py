@@ -7,7 +7,12 @@ import tempfile
 import time
 
 import torch
-from transformers import AutoTokenizer, AutoProcessor, BitsAndBytesConfig, AutoModelForCausalLM
+from transformers import (
+    AutoTokenizer, 
+    AutoProcessor, 
+    BitsAndBytesConfig,
+    Qwen2_5VLForConditionalGeneration
+)
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
@@ -91,6 +96,8 @@ class QwenVLProcessor:
                 # Optimize model loading based on device
                 if self.device == "cuda":
                     self.logger.info("Loading model with INT8 quantization")
+                    
+                    # Primary configuration: INT8 quantization for memory efficiency
                     quantization_config = BitsAndBytesConfig(
                         load_in_8bit=True,
                         llm_int8_threshold=6.0
@@ -100,6 +107,18 @@ class QwenVLProcessor:
                         "trust_remote_code": True,
                         "quantization_config": quantization_config
                     }
+                    
+                    # Alternative configuration with Flash Attention (commented)
+                    # Note: Flash Attention 2 typically works with FP16/BF16, not INT8
+                    # Uncomment below and comment above if prioritizing speed over memory
+                    """
+                    model_kwargs = {
+                        "device_map": "auto",
+                        "trust_remote_code": True,
+                        "torch_dtype": torch.float16,
+                        "attn_implementation": "flash_attention_2"
+                    }
+                    """
                 else:
                     self.logger.info("Loading model for CPU inference")
                     model_kwargs = {
@@ -108,8 +127,8 @@ class QwenVLProcessor:
                         "low_cpu_mem_usage": True
                     }
                 
-                # Load the model
-                self.model = AutoModelForCausalLM.from_pretrained(
+                # Load the model with correct class
+                self.model = Qwen2_5VLForConditionalGeneration.from_pretrained(
                     self.model_name,
                     **model_kwargs
                 )
