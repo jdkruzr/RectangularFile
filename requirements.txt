@@ -1,4 +1,4 @@
-pdfminer.six>=20221105pip
+pdfminer.six>=20221105
 flask>=2.0.0
 watchdog>=2.1.0
 pytesseract>=0.3.8
