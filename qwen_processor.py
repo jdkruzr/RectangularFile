@@ -7,41 +7,47 @@ import tempfile
 import time
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoProcessor, BitsAndBytesConfig
 from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
 
-# Increase the PIL image size limit to prevent DecompressionBombWarning
-Image.MAX_IMAGE_PIXELS = 200000000  # Increased limit for large images
+# Increase the PIL image size limit
+Image.MAX_IMAGE_PIXELS = 200000000
 
 class QwenVLProcessor:
-    """Process PDF documents using Qwen2-VL-7B for text recognition."""
+    """Process PDF documents using Qwen2-VL for text recognition with GPU acceleration."""
     
     def __init__(self, model_name: str = "Qwen/Qwen2-VL-2B", use_cache: bool = True):
         """
-        Initialize the Qwen VL processor.
+        Initialize the Qwen VL processor with GPU support.
         
         Args:
             model_name: Name or path of the Qwen VL model
             use_cache: Whether to use the Hugging Face cache
         """
+        # Set cache directory
+        os.environ['TRANSFORMERS_CACHE'] = '/path/to/your/cache/directory'
+        
         self.setup_logging()
         self.model_name = model_name
         self.use_cache = use_cache
         
-        # Determine device (GPU if available, else CPU)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.logger.info(f"Using device: {self.device}")
+        # Check for GPU availability and set device
+        if torch.cuda.is_available():
+            self.device = "cuda"
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            self.logger.info(f"Using GPU: {gpu_name} with {gpu_memory:.2f} GB VRAM")
+        else:
+            self.device = "cpu"
+            self.logger.info("No GPU detected, using CPU")
         
         # Lazy loading - will initialize when first used
         self.tokenizer = None
         self.processor = None
         self.model = None
-
-        # Set custom cache directory
-        os.environ['TRANSFORMERS_CACHE'] = '/mnt/rectangularfile/qwencache'
     
     def setup_logging(self):
         """Configure logging for the processor."""
@@ -54,6 +60,13 @@ class QwenVLProcessor:
             )
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
+    
+    def _log_memory_usage(self):
+        """Log current GPU memory usage."""
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            self.logger.info(f"GPU Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
     
     def _load_model(self):
         """Load the model, tokenizer, and processor if not already loaded."""
@@ -72,45 +85,47 @@ class QwenVLProcessor:
                     trust_remote_code=True
                 )
                 
-                # Check if we can use quantization
-                can_use_quantization = False
-                try:
-                    import bitsandbytes
-                    if torch.cuda.is_available():
-                        can_use_quantization = True
-                except (ImportError, AttributeError):
-                    self.logger.warning("bitsandbytes not available for quantization, using full precision")
-                
-                # Load model with appropriate configuration
-                if can_use_quantization:
-                    self.logger.info("Using 4-bit quantization with CUDA")
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_compute_dtype=torch.float16,
-                        bnb_4bit_quant_type="nf4"
-                    )
-                    
-                    self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                        self.model_name,
-                        torch_dtype=torch.float16,
-                        device_map="auto",
-                        trust_remote_code=True,
-                        quantization_config=quantization_config
-                    )
+                # Optimize model loading based on device
+                if self.device == "cuda":
+                    # For GPU with 6GB VRAM, use FP16 for 2B model or quantization for larger models
+                    if "7B" in self.model_name:
+                        # For 7B model, use 8-bit quantization
+                        self.logger.info("Loading 7B model with 8-bit quantization")
+                        quantization_config = BitsAndBytesConfig(
+                            load_in_8bit=True,
+                            llm_int8_threshold=6.0
+                        )
+                        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                            self.model_name,
+                            torch_dtype=torch.float16,
+                            device_map="auto",
+                            trust_remote_code=True,
+                            quantization_config=quantization_config
+                        )
+                    else:
+                        # For 2B model, FP16 is sufficient
+                        self.logger.info("Loading model with FP16 precision")
+                        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                            self.model_name,
+                            torch_dtype=torch.float16,
+                            device_map="auto",
+                            trust_remote_code=True
+                        )
                 else:
-                    self.logger.info("Using CPU without quantization")
-                    # For CPU-only systems, don't use quantization
+                    # For CPU, use default settings
+                    self.logger.info("Loading model for CPU inference")
                     self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                         self.model_name,
                         device_map="auto",
                         trust_remote_code=True,
-                        low_cpu_mem_usage=True,
-                        torch_dtype=torch.float32,  # Use float32 for CPU
-                        offload_folder="/mnt/rectangularfile/qwencache/offload"  # Helps with memory management
+                        low_cpu_mem_usage=True
                     )
                 
                 # Put model in evaluation mode
                 self.model.eval()
+                
+                # Log memory usage
+                self._log_memory_usage()
                 
                 elapsed = time.time() - start_time
                 self.logger.info(f"Model loaded successfully in {elapsed:.2f} seconds")
@@ -125,10 +140,11 @@ class QwenVLProcessor:
         pdf_path: Path,
         doc_id: int,
         db_manager: DatabaseManager,
-        dpi: int = 150  # Changed from 300 to 150 for better performance
+        dpi: int = 150  # Good balance for GPU processing
     ) -> bool:
         """
-        Process a PDF document for text recognition using Qwen2-VL.
+        Process a PDF document for text recognition using Qwen2-VL with GPU acceleration.
+        
         Args:
             pdf_path: Path to the PDF file
             doc_id: Database ID of the document
@@ -172,18 +188,22 @@ class QwenVLProcessor:
                     )
                     self.logger.info(f"Converted PDF to {len(images)} images")
                     
-                    # Process images - resize large ones
+                    # Process images - resize if needed
                     processed_images = []
+                    
+                    # With GPU, we can handle larger images
+                    max_pixels = 3000000 if self.device == "cuda" else 1000000
+                    
                     for img in images:
                         # Check if image is too large
-                        if img.width * img.height > 4000000:  # 4 million pixels
+                        if img.width * img.height > max_pixels:
                             # Calculate new dimensions keeping aspect ratio
-                            scale_factor = (4000000 / (img.width * img.height)) ** 0.5
+                            scale_factor = (max_pixels / (img.width * img.height)) ** 0.5
                             new_width = int(img.width * scale_factor)
                             new_height = int(img.height * scale_factor)
                             
                             # Resize image
-                            self.logger.info(f"Resizing large image from {img.width}x{img.height} to {new_width}x{new_height}")
+                            self.logger.info(f"Resizing image from {img.width}x{img.height} to {new_width}x{new_height}")
                             img = img.resize((new_width, new_height), Image.LANCZOS)
                         
                         processed_images.append(img)
@@ -230,6 +250,7 @@ class QwenVLProcessor:
                     text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
                     self.logger.info(f"Text sample: {text_sample}...")
                     self.logger.info(f"Recognized {word_count} words with confidence {confidence:.2f}")
+                    
                     # Store the OCR result
                     page_data[page_num] = {
                         'text': text,
@@ -238,12 +259,10 @@ class QwenVLProcessor:
                         'char_count': char_count,
                         'processed_at': datetime.now()
                     }
-
-                    # Add explicit cleanup after each page to manage memory
-                    if i < len(processed_images) - 1:  # If not the last page
-                        torch.cuda.empty_cache() if torch.cuda.is_available() else None
-                        import gc
-                        gc.collect()  # Force garbage collection between pages
+                    
+                    # Clear GPU cache between pages if using CUDA
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
 
                 # Store results in database
                 self.logger.info(f"Storing recognition results for {len(page_data)} pages")
@@ -280,7 +299,7 @@ class QwenVLProcessor:
     
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
         """
-        Process a single image with Qwen2-VL.
+        Process a single image with Qwen2-VL using GPU acceleration.
         
         Args:
             image: PIL Image to process
@@ -299,13 +318,17 @@ class QwenVLProcessor:
                 return_tensors="pt"
             ).to(self.device)
             
-            # Generate transcription
+            # Generate transcription with GPU optimizations
             with torch.no_grad():
+                if self.device == "cuda":
+                    # Use CUDA optimizations
+                    torch.cuda.empty_cache()
+                
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=800,  # Allow for longer outputs
-                    do_sample=False,     # Deterministic generation
-                    temperature=1.0      # Default temperature
+                    max_new_tokens=800,
+                    do_sample=False,
+                    temperature=1.0
                 )
             
             # Decode the output
@@ -322,8 +345,12 @@ class QwenVLProcessor:
                 else:
                     transcription = generated_text.strip()
             
-            # For confidence, since the model doesn't provide token-level confidences,
-            # we use a placeholder high value (these models are generally quite accurate)
+            # Clean up to reduce memory footprint
+            del inputs, outputs
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+            
+            # For confidence, we use a placeholder high value
             confidence = 0.95
             
             return transcription, confidence
