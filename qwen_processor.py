@@ -7,8 +7,7 @@ import tempfile
 import time
 
 import torch
-from transformers import AutoTokenizer, AutoProcessor, BitsAndBytesConfig
-from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
+from transformers import AutoTokenizer, AutoProcessor, BitsAndBytesConfig, AutoModelForCausalLM
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
@@ -17,9 +16,9 @@ from db_manager import DatabaseManager
 Image.MAX_IMAGE_PIXELS = 200000000
 
 class QwenVLProcessor:
-    """Process PDF documents using Qwen2-VL for text recognition with GPU acceleration."""
+    """Process PDF documents using Qwen-2.5-VL-3B-Instruct for text recognition."""
     
-    def __init__(self, model_name: str = "Qwen/Qwen2-VL-2B", use_cache: bool = True):
+    def __init__(self, model_name: str = "Qwen/Qwen-2.5-VL-3B-Instruct", use_cache: bool = True):
         """
         Initialize the Qwen VL processor with GPU support.
         
@@ -72,7 +71,7 @@ class QwenVLProcessor:
         """Load the model, tokenizer, and processor if not already loaded."""
         if self.model is None:
             try:
-                self.logger.info(f"Loading Qwen2-VL model: {self.model_name}")
+                self.logger.info(f"Loading Qwen2.5-VL model: {self.model_name}")
                 start_time = time.time()
                 
                 # Load tokenizer and processor
@@ -93,7 +92,7 @@ class QwenVLProcessor:
                         load_in_8bit=True,
                         llm_int8_threshold=6.0
                     )
-                    self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                    self.model = AutoModelForCausalLM.from_pretrained(
                         self.model_name,
                         device_map="auto",
                         trust_remote_code=True,
@@ -102,7 +101,7 @@ class QwenVLProcessor:
                 else:
                     # For CPU, use default settings
                     self.logger.info("Loading model for CPU inference")
-                    self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                    self.model = AutoModelForCausalLM.from_pretrained(
                         self.model_name,
                         device_map="auto",
                         trust_remote_code=True,
@@ -131,7 +130,7 @@ class QwenVLProcessor:
         dpi: int = 150  # Good balance for GPU processing
     ) -> bool:
         """
-        Process a PDF document for text recognition using Qwen2-VL with GPU acceleration.
+        Process a PDF document for text recognition using Qwen2.5-VL.
         
         Args:
             pdf_path: Path to the PDF file
@@ -148,9 +147,9 @@ class QwenVLProcessor:
             
             # Load model if not already loaded
             if not self._load_model():
-                self.logger.error("Failed to load Qwen2-VL model")
+                self.logger.error("Failed to load Qwen2.5-VL model")
                 db_manager.update_processing_progress(
-                    doc_id, 0.0, "Failed to load Qwen2-VL model"
+                    doc_id, 0.0, "Failed to load Qwen2.5-VL model"
                 )
                 return False
             
@@ -227,7 +226,7 @@ class QwenVLProcessor:
                         f"Recognizing text on page {page_num}/{len(processed_images)}"
                     )
 
-                    # Process the image with Qwen2-VL
+                    # Process the image with Qwen2.5-VL
                     text, confidence = self._process_image(image)
                     
                     # Count words and characters
@@ -286,11 +285,20 @@ class QwenVLProcessor:
             return False
     
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
-        """Process a single image with Qwen2-VL."""
+        """Process a single image with Qwen2.5-VL."""
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
             
-            prompt = "Please transcribe all handwritten text in this image, preserving layout and line breaks:"
+            # Instruct-specific prompt format
+            prompt = """<|im_start|>system
+You are a helpful assistant that accurately transcribes handwritten text from images.
+<|im_end|>
+<|im_start|>user
+Please transcribe all handwritten text in this image, preserving layout and line breaks.
+<|im_end|>
+<|im_start|>assistant
+I'll transcribe the handwritten text from the image, maintaining its layout:
+"""
             
             # Process with explicit processor settings and logging
             self.logger.info("Preparing inputs with processor...")
@@ -298,8 +306,8 @@ class QwenVLProcessor:
                 text=prompt,
                 images=image,
                 return_tensors="pt",
-                use_fast=True,
-                padding=True
+                padding=True,
+                add_special_tokens=True
             )
             
             # Log processor output details
@@ -326,7 +334,9 @@ class QwenVLProcessor:
                     **inputs,
                     max_new_tokens=500,
                     do_sample=False,
-                    temperature=1.0
+                    temperature=1.0,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id
                 )
             
             # Log generation completion
@@ -341,12 +351,16 @@ class QwenVLProcessor:
                 torch.cuda.empty_cache()
                 self._log_memory_usage()
             
-            # Extract text part
-            if prompt in generated_text:
-                text = generated_text.replace(prompt, "").strip()
+            # Extract text between assistant's response and end token
+            response_start = generated_text.find("<|im_start|>assistant")
+            if response_start != -1:
+                text_start = generated_text.find("\n", response_start) + 1
+                text_end = generated_text.find("<|im_end|>", text_start)
+                if text_end == -1:
+                    text_end = None
+                text = generated_text[text_start:text_end].strip()
             else:
-                parts = generated_text.split(":")
-                text = parts[-1].strip() if len(parts) > 1 else generated_text.strip()
+                text = generated_text.strip()
             
             # Log result summary
             text_preview = text[:100] + "..." if text else "[No text recognized]"
@@ -358,44 +372,4 @@ class QwenVLProcessor:
             self.logger.error(f"Error processing image: {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return "", 0.0
-
-    def _process_single_window(self, image: Image.Image, prompt: str) -> Tuple[str, float]:
-        """Helper method to process a single window of the image."""
-        try:
-            # Prepare inputs
-            inputs = self.processor(
-                text=prompt,
-                images=image,
-                return_tensors="pt"
-            ).to(self.device)
-            
-            # Generate transcription
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=500,
-                    do_sample=False,
-                    temperature=1.0
-                )
-            
-            # Decode the output
-            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # Clean up
-            del inputs, outputs
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            
-            # Extract text from response
-            if prompt in generated_text:
-                text = generated_text.replace(prompt, "").strip()
-            else:
-                parts = generated_text.split(":")
-                text = parts[-1].strip() if len(parts) > 1 else generated_text.strip()
-            
-            return text, 0.95
-            
-        except Exception as e:
-            self.logger.error(f"Error processing window: {e}")
             return "", 0.0
