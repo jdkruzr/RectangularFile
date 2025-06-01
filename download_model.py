@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 from transformers import AutoTokenizer, AutoProcessor
-from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLForConditionalGeneration
+from transformers.models.qwen2.5_vl.modeling_qwen2.5_vl import Qwen2.5VLForConditionalGeneration
 
 # Set cache directory explicitly
 cache_dir = "/mnt/rectangularfile/qwencache"
@@ -12,7 +12,7 @@ os.environ['TRANSFORMERS_CACHE'] = cache_dir
 Path(cache_dir).mkdir(parents=True, exist_ok=True)
 print(f"Using cache directory: {cache_dir}")
 
-model_name = "Qwen/Qwen2-VL-2B"
+model_name = "Qwen/Qwen2.5-VL-3B-Instruct"
 print(f"Downloading {model_name}...")
 
 # Download tokenizer and processor
@@ -32,7 +32,7 @@ processor = AutoProcessor.from_pretrained(
 
 # Download the model using the specific model class
 print("Downloading model (this will take some time)...")
-model = Qwen2VLForConditionalGeneration.from_pretrained(
+model = Qwen2.5VLForConditionalGeneration.from_pretrained(
     model_name, 
     trust_remote_code=True,
     cache_dir=cache_dir,
