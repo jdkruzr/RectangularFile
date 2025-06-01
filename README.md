@@ -24,7 +24,7 @@ brew install poppler  # Required for PDF processing
 ### Debian/Ubuntu:
 ```bash
 apt-get update
-apt-get install -y python3-pip python3-venv poppler-utils  # Required for PDF processing and server
+apt-get install -y python3-pip python3-venv  # Required for PDF processing and server
 ```
 
 ### Windows:
