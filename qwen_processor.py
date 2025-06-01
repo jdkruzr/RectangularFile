@@ -285,69 +285,115 @@ class QwenVLProcessor:
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
     
-def _process_image(self, image: Image.Image) -> Tuple[str, float]:
-    try:
-        # Define prompt for handwriting recognition
-        prompt = "Please transcribe all the handwritten text in this image, preserving the layout and line breaks:"
+    def _process_image(self, image: Image.Image) -> Tuple[str, float]:
+        """
+        Process a single image with Qwen2-VL using a sliding window approach.
         
-        # Resize image to model's expected size (typically 224x224 or similar)
-        target_size = (224, 224)  # Standard vision model input size
-        image = image.resize(target_size, Image.LANCZOS)
-        
-        # Prepare inputs with explicit image processing
-        inputs = self.processor(
-            text=prompt,
-            images=image,
-            return_tensors="pt",
-            padding=True,
-            max_length=512,  # Explicit max length
-            truncation=True,  # Enable truncation
-            use_fast=True    # Use fast tokenizer
-        ).to(self.device)
-        
-        # Generate transcription with GPU optimizations
-        with torch.no_grad():
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+        Args:
+            image: PIL Image to process
             
-            # Get image embeddings first
-            image_embeds = self.model.get_image_features(**inputs)
+        Returns:
+            Tuple of (recognized_text, confidence_score)
+        """
+        try:
+            # Window parameters
+            window_height = 1000  # Height of each window
+            window_width = 1000   # Width of each window
+            overlap = 100         # Overlap between windows to avoid cutting text
             
-            # Generate text using the embeddings
-            outputs = self.model.generate(
-                inputs['input_ids'],
-                attention_mask=inputs['attention_mask'],
-                image_embeds=image_embeds,
-                max_new_tokens=500,
-                do_sample=False,
-                temperature=1.0,
-                num_beams=1,
-                pad_token_id=self.tokenizer.pad_token_id
-            )
-        
-        # Decode the output
-        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Remove the prompt from the output
-        if prompt in generated_text:
-            transcription = generated_text.replace(prompt, "").strip()
-        else:
-            parts = generated_text.split(":")
-            if len(parts) > 1:
-                transcription = parts[1].strip()
+            # Calculate number of windows needed
+            n_windows_y = max(1, (image.height - overlap) // (window_height - overlap))
+            n_windows_x = max(1, (image.width - overlap) // (window_width - overlap))
+            
+            self.logger.info(f"Processing image {image.width}x{image.height} with {n_windows_x}x{n_windows_y} windows")
+            
+            all_text_parts = []
+            
+            # Process each window
+            for y in range(n_windows_y):
+                for x in range(n_windows_x):
+                    # Calculate window coordinates
+                    x_start = x * (window_width - overlap)
+                    y_start = y * (window_height - overlap)
+                    x_end = min(x_start + window_width, image.width)
+                    y_end = min(y_start + window_height, image.height)
+                    
+                    # Extract window
+                    window = image.crop((x_start, y_start, x_end, y_end))
+                    
+                    self.logger.info(f"Processing window at ({x_start},{y_start}) to ({x_end},{y_end})")
+                    
+                    # Process window
+                    prompt = f"Please transcribe any handwritten text in this section of the image, preserving layout. This is part {x+1},{y+1} of a larger image:"
+                    
+                    # Prepare inputs
+                    inputs = self.processor(
+                        text=prompt,
+                        images=window,
+                        return_tensors="pt"
+                    ).to(self.device)
+                    
+                    # Generate transcription
+                    with torch.no_grad():
+                        if self.device == "cuda":
+                            torch.cuda.empty_cache()
+                        
+                        outputs = self.model.generate(
+                            **inputs,
+                            max_new_tokens=500,
+                            do_sample=False,
+                            temperature=1.0
+                        )
+                    
+                    # Decode the output
+                    generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                    
+                    # Clean up window processing
+                    del inputs, outputs
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
+                    
+                    # Extract text from response
+                    if prompt in generated_text:
+                        text = generated_text.replace(prompt, "").strip()
+                    else:
+                        parts = generated_text.split(":")
+                        text = parts[-1].strip() if len(parts) > 1 else generated_text.strip()
+                    
+                    if text:
+                        # Store position information with the text
+                        all_text_parts.append({
+                            'text': text,
+                            'position': (x_start, y_start, x_end, y_end)
+                        })
+            
+            # Combine text parts based on position
+            if all_text_parts:
+                # Sort text parts by y position, then x position
+                all_text_parts.sort(key=lambda p: (p['position'][1], p['position'][0]))
+                
+                # Combine text with appropriate spacing
+                combined_text = ""
+                last_y = -1
+                
+                for part in all_text_parts:
+                    text = part['text']
+                    y_start = part['position'][1]
+                    
+                    # Add line breaks between different y positions
+                    if last_y != -1 and abs(y_start - last_y) > overlap:
+                        combined_text += "\n\n"
+                    elif last_y != -1:
+                        combined_text += " "
+                    
+                    combined_text += text
+                    last_y = y_start
+                
+                self.logger.info(f"Successfully combined text from {len(all_text_parts)} windows")
+                return combined_text.strip(), 0.95
             else:
-                transcription = generated_text.strip()
-        
-        # Clean up to reduce memory footprint
-        del inputs, outputs, image_embeds
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
-        
-        # For confidence, we use a placeholder high value
-        confidence = 0.95
-        
-        return transcription, confidence
-        
-    except Exception as e:
-        self.logger.error(f"Error processing image: {e}")
-        return "", 0.0
+                return "", 0.0
+                
+        except Exception as e:
+            self.logger.error(f"Error processing image: {e}")
+            return "", 0.0
