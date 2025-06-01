@@ -11,7 +11,7 @@ from transformers import (
     AutoTokenizer, 
     AutoProcessor, 
     BitsAndBytesConfig,
-    Qwen2_5VLForConditionalGeneration
+    Qwen2_5_VLForConditionalGeneration
 )
 from PIL import Image
 from pdf2image import convert_from_path
@@ -128,7 +128,7 @@ class QwenVLProcessor:
                     }
                 
                 # Load the model with correct class
-                self.model = Qwen2_5VLForConditionalGeneration.from_pretrained(
+                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                     self.model_name,
                     **model_kwargs
                 )
