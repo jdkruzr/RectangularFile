@@ -7,33 +7,22 @@ import tempfile
 import time
 
 import torch
-from transformers import AutoTokenizer, AutoProcessor, BitsAndBytesConfig, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoProcessor, BitsAndBytesConfig
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5VLForCausalLM
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
 
-# Increase the PIL image size limit
 Image.MAX_IMAGE_PIXELS = 200000000
 
 class QwenVLProcessor:
-    """Process PDF documents using Qwen2.5-VL-3B-Instruct for text recognition."""
-    
     def __init__(self, model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", use_cache: bool = True):
-        """
-        Initialize the Qwen VL processor with GPU support.
-        
-        Args:
-            model_name: Name or path of the Qwen VL model
-            use_cache: Whether to use the Hugging Face cache
-        """
-        # Set cache directory
         os.environ['TRANSFORMERS_CACHE'] = '/mnt/rectangularfile/qwencache'
         
         self.setup_logging()
         self.model_name = model_name
         self.use_cache = use_cache
         
-        # Check for GPU availability and set device
         if torch.cuda.is_available():
             self.device = "cuda"
             gpu_name = torch.cuda.get_device_name(0)
@@ -43,13 +32,11 @@ class QwenVLProcessor:
             self.device = "cpu"
             self.logger.info("No GPU detected, using CPU")
         
-        # Lazy loading - will initialize when first used
         self.tokenizer = None
         self.processor = None
         self.model = None
     
     def setup_logging(self):
-        """Configure logging for the processor."""
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
         if not self.logger.handlers:
@@ -61,20 +48,17 @@ class QwenVLProcessor:
             self.logger.addHandler(handler)
     
     def _log_memory_usage(self):
-        """Log current GPU memory usage."""
         if torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated() / (1024**3)
             reserved = torch.cuda.memory_reserved() / (1024**3)
             self.logger.info(f"GPU Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
     
     def _load_model(self):
-        """Load the model, tokenizer, and processor if not already loaded."""
         if self.model is None:
             try:
                 self.logger.info(f"Loading Qwen2.5-VL model: {self.model_name}")
                 start_time = time.time()
                 
-                # Load tokenizer and processor
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     self.model_name, 
                     trust_remote_code=True
@@ -84,34 +68,28 @@ class QwenVLProcessor:
                     trust_remote_code=True
                 )
                 
-                # Optimize model loading based on device
                 if self.device == "cuda":
-                    # Use 8-bit quantization for all models on GPU
                     self.logger.info("Loading model with INT8 quantization")
                     quantization_config = BitsAndBytesConfig(
                         load_in_8bit=True,
                         llm_int8_threshold=6.0
                     )
-                    self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model = Qwen2_5VLForCausalLM.from_pretrained(
                         self.model_name,
                         device_map="auto",
                         trust_remote_code=True,
                         quantization_config=quantization_config
                     )
                 else:
-                    # For CPU, use default settings
                     self.logger.info("Loading model for CPU inference")
-                    self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model = Qwen2_5VLForCausalLM.from_pretrained(
                         self.model_name,
                         device_map="auto",
                         trust_remote_code=True,
                         low_cpu_mem_usage=True
                     )
                 
-                # Put model in evaluation mode
                 self.model.eval()
-                
-                # Log memory usage
                 self._log_memory_usage()
                 
                 elapsed = time.time() - start_time
@@ -127,25 +105,12 @@ class QwenVLProcessor:
         pdf_path: Path,
         doc_id: int,
         db_manager: DatabaseManager,
-        dpi: int = 150  # Good balance for GPU processing
+        dpi: int = 150
     ) -> bool:
-        """
-        Process a PDF document for text recognition using Qwen2.5-VL.
-        
-        Args:
-            pdf_path: Path to the PDF file
-            doc_id: Database ID of the document
-            db_manager: Database manager instance
-            dpi: DPI for PDF to image conversion
-            
-        Returns:
-            bool: True if processing was successful
-        """
         try:
             self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
             
-            # Load model if not already loaded
             if not self._load_model():
                 self.logger.error("Failed to load Qwen2.5-VL model")
                 db_manager.update_processing_progress(
@@ -153,12 +118,10 @@ class QwenVLProcessor:
                 )
                 return False
             
-            # Mark document as being processed
             if not db_manager.mark_ocr_started(doc_id):
                 self.logger.error(f"Failed to mark document {doc_id} for processing")
                 return False
             
-            # Convert PDF to images
             self.logger.info(f"Converting PDF to images at {dpi} DPI")
             
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -175,21 +138,15 @@ class QwenVLProcessor:
                     )
                     self.logger.info(f"Converted PDF to {len(images)} images")
                     
-                    # Process images - resize if needed
                     processed_images = []
-                    
-                    # With GPU, we can handle larger images
                     max_pixels = 3000000 if self.device == "cuda" else 1000000
                     
                     for img in images:
-                        # Check if image is too large
                         if img.width * img.height > max_pixels:
-                            # Calculate new dimensions keeping aspect ratio
                             scale_factor = (max_pixels / (img.width * img.height)) ** 0.5
                             new_width = int(img.width * scale_factor)
                             new_height = int(img.height * scale_factor)
                             
-                            # Resize image
                             self.logger.info(f"Resizing image from {img.width}x{img.height} to {new_width}x{new_height}")
                             img = img.resize((new_width, new_height), Image.LANCZOS)
                         
@@ -211,7 +168,6 @@ class QwenVLProcessor:
                     )
                     return False
 
-                # Process each page
                 page_data = {}
                 progress_per_page = 80.0 / len(processed_images)
 
@@ -226,19 +182,15 @@ class QwenVLProcessor:
                         f"Recognizing text on page {page_num}/{len(processed_images)}"
                     )
 
-                    # Process the image with Qwen2.5-VL
                     text, confidence = self._process_image(image)
                     
-                    # Count words and characters
                     word_count = len(text.split()) if text else 0
                     char_count = len(text) if text else 0
 
-                    # Log sample of recognized text
                     text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
                     self.logger.info(f"Text sample: {text_sample}...")
                     self.logger.info(f"Recognized {word_count} words with confidence {confidence:.2f}")
                     
-                    # Store the OCR result
                     page_data[page_num] = {
                         'text': text,
                         'confidence': confidence,
@@ -247,11 +199,9 @@ class QwenVLProcessor:
                         'processed_at': datetime.now()
                     }
                     
-                    # Clear GPU cache between pages if using CUDA
                     if self.device == "cuda":
                         torch.cuda.empty_cache()
 
-                # Store results in database
                 self.logger.info(f"Storing recognition results for {len(page_data)} pages")
                 db_manager.update_processing_progress(
                     doc_id, 90.0, "Storing recognized text"
@@ -285,11 +235,9 @@ class QwenVLProcessor:
             return False
     
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
-        """Process a single image with Qwen2.5-VL."""
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
             
-            # Instruct-specific prompt format
             prompt = """<|im_start|>system
 You are a helpful assistant that accurately transcribes handwritten text from images.
 <|im_end|>
@@ -300,7 +248,6 @@ Please transcribe all handwritten text in this image, preserving layout and line
 I'll transcribe the handwritten text from the image, maintaining its layout:
 """
             
-            # Process with explicit processor settings and logging
             self.logger.info("Preparing inputs with processor...")
             inputs = self.processor(
                 text=prompt,
@@ -310,8 +257,6 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
                 add_special_tokens=True
             )
             
-            # Log processor output details
-            self.logger.info("Processor output details:")
             for key, value in inputs.items():
                 if hasattr(value, 'shape'):
                     self.logger.info(f"- {key}: shape {value.shape}")
@@ -320,14 +265,11 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
                 else:
                     self.logger.info(f"- {key}: type {type(value)}")
             
-            # Move to device
             inputs = inputs.to(self.device)
             self.logger.info(f"Moved inputs to {self.device}")
             
-            # Log memory usage before generation
             self._log_memory_usage()
             
-            # Generate transcription
             self.logger.info("Generating transcription...")
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -339,19 +281,14 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
                     eos_token_id=self.tokenizer.eos_token_id
                 )
             
-            # Log generation completion
             self.logger.info("Generation completed")
-            
-            # Decode the output
             generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            # Clean up
             del inputs, outputs
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 self._log_memory_usage()
             
-            # Extract text between assistant's response and end token
             response_start = generated_text.find("<|im_start|>assistant")
             if response_start != -1:
                 text_start = generated_text.find("\n", response_start) + 1
@@ -362,7 +299,6 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
             else:
                 text = generated_text.strip()
             
-            # Log result summary
             text_preview = text[:100] + "..." if text else "[No text recognized]"
             self.logger.info(f"Recognized text preview: {text_preview}")
             
