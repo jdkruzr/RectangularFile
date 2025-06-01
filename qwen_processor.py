@@ -84,14 +84,9 @@ class QwenVLProcessor:
                     trust_remote_code=True
                 )
                 
-                # Ensure tokenizer has necessary special tokens
-                special_tokens = {
-                    "pad_token": "<|endoftext|>",
-                    "eos_token": "<|endoftext|>",
-                    "im_start_token": "<|im_start|>",
-                    "im_end_token": "<|im_end|>"
-                }
-                self.tokenizer.add_special_tokens(special_tokens)
+                # Ensure tokenizer has pad and eos tokens if needed
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
                 
                 # Optimize model loading based on device
                 if self.device == "cuda":
@@ -128,6 +123,7 @@ class QwenVLProcessor:
                 elapsed = time.time() - start_time
                 self.logger.info(f"Model loaded successfully in {elapsed:.2f} seconds")
                 return True
+                
             except Exception as e:
                 self.logger.error(f"Error loading model: {e}")
                 import traceback
@@ -297,8 +293,7 @@ I'll transcribe the handwritten text from the image, maintaining its layout:
             inputs = self.processor(
                 text=prompt,
                 images=image,
-                return_tensors="pt",
-                add_special_tokens=True
+                return_tensors="pt"
             )
             
             # Log processor output details
