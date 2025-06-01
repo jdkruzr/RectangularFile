@@ -28,7 +28,7 @@ class QwenVLProcessor:
             use_cache: Whether to use the Hugging Face cache
         """
         # Set cache directory
-        os.environ['TRANSFORMERS_CACHE'] = '/path/to/your/cache/directory'
+        os.environ['TRANSFORMERS_CACHE'] = '/mnt/rectangularfile/qwencache'
         
         self.setup_logging()
         self.model_name = model_name
