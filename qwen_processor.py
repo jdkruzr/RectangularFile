@@ -285,64 +285,69 @@ class QwenVLProcessor:
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
     
-    def _process_image(self, image: Image.Image) -> Tuple[str, float]:
-        """
-        Process a single image with Qwen2-VL using GPU acceleration.
+def _process_image(self, image: Image.Image) -> Tuple[str, float]:
+    try:
+        # Define prompt for handwriting recognition
+        prompt = "Please transcribe all the handwritten text in this image, preserving the layout and line breaks:"
         
-        Args:
-            image: PIL Image to process
-            
-        Returns:
-            Tuple of (recognized_text, confidence_score)
-        """
-        try:
-            # Define prompt for handwriting recognition
-            prompt = "Please transcribe all the handwritten text in this image, preserving the layout and line breaks:"
-            
-            # Prepare inputs
-            inputs = self.processor(
-                text=prompt,
-                images=image,
-                return_tensors="pt"
-            ).to(self.device)
-            
-            # Generate transcription with GPU optimizations
-            with torch.no_grad():
-                if self.device == "cuda":
-                    # Use CUDA optimizations
-                    torch.cuda.empty_cache()
-                
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=800,
-                    do_sample=False,
-                    temperature=1.0
-                )
-            
-            # Decode the output
-            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-            
-            # Remove the prompt from the output
-            if prompt in generated_text:
-                transcription = generated_text.replace(prompt, "").strip()
-            else:
-                # If prompt not found in output, take everything after a reasonable marker
-                parts = generated_text.split(":")
-                if len(parts) > 1:
-                    transcription = parts[1].strip()
-                else:
-                    transcription = generated_text.strip()
-            
-            # Clean up to reduce memory footprint
-            del inputs, outputs
+        # Resize image to model's expected size (typically 224x224 or similar)
+        target_size = (224, 224)  # Standard vision model input size
+        image = image.resize(target_size, Image.LANCZOS)
+        
+        # Prepare inputs with explicit image processing
+        inputs = self.processor(
+            text=prompt,
+            images=image,
+            return_tensors="pt",
+            padding=True,
+            max_length=512,  # Explicit max length
+            truncation=True,  # Enable truncation
+            use_fast=True    # Use fast tokenizer
+        ).to(self.device)
+        
+        # Generate transcription with GPU optimizations
+        with torch.no_grad():
             if self.device == "cuda":
                 torch.cuda.empty_cache()
             
-            # For confidence, we use a placeholder high value
-            confidence = 0.95
+            # Get image embeddings first
+            image_embeds = self.model.get_image_features(**inputs)
             
-            return transcription, confidence
-            
-        except Exception as e:
-            self.logger.error(f"Error processing image: {e}")
-            return "", 0.0
+            # Generate text using the embeddings
+            outputs = self.model.generate(
+                inputs['input_ids'],
+                attention_mask=inputs['attention_mask'],
+                image_embeds=image_embeds,
+                max_new_tokens=500,
+                do_sample=False,
+                temperature=1.0,
+                num_beams=1,
+                pad_token_id=self.tokenizer.pad_token_id
+            )
+        
+        # Decode the output
+        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Remove the prompt from the output
+        if prompt in generated_text:
+            transcription = generated_text.replace(prompt, "").strip()
+        else:
+            parts = generated_text.split(":")
+            if len(parts) > 1:
+                transcription = parts[1].strip()
+            else:
+                transcription = generated_text.strip()
+        
+        # Clean up to reduce memory footprint
+        del inputs, outputs, image_embeds
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
+        
+        # For confidence, we use a placeholder high value
+        confidence = 0.95
+        
+        return transcription, confidence
+        
+    except Exception as e:
+        self.logger.error(f"Error processing image: {e}")
+        return "", 0.0
