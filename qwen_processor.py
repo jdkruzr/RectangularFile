@@ -87,6 +87,15 @@ class QwenVLProcessor:
 
     def _resize_image_if_needed(self, image: Image.Image) -> Image.Image:
         """Resize image if it exceeds memory-safe dimensions."""
+        debug_dir = Path("/mnt/rectangularfile/debug_images")
+        debug_dir.mkdir(exist_ok=True)
+        
+        # Save original image
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        original_path = debug_dir / f"original_{timestamp}.jpg"
+        image.save(original_path)
+        self.logger.info(f"Saved original image to {original_path}")
+        
         original_pixels = image.width * image.height
         if original_pixels <= self.target_image_pixels:
             return image
@@ -101,7 +110,14 @@ class QwenVLProcessor:
             f"({new_width * new_height:,} pixels) to conserve memory"
         )
 
-        return image.resize((new_width, new_height), Image.LANCZOS)
+        resized_image = image.resize((new_width, new_height), Image.LANCZOS)
+        
+        # Save resized image
+        resized_path = debug_dir / f"resized_{timestamp}.jpg"
+        resized_image.save(resized_path)
+        self.logger.info(f"Saved resized image to {resized_path}")
+        
+        return resized_image
 
     def _load_model(self):
         """Load the model, tokenizer, and processor if not already loaded."""
