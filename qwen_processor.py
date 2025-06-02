@@ -307,13 +307,15 @@ class QwenVLProcessor:
             image = self._resize_image_if_needed(image)
 
             prompt = """<|im_start|>system
-You are a helpful assistant that accurately transcribes handwritten text from images.
+You are a helpful assistant that describes and transcribes handwritten text from images.
 <|im_end|>
 <|im_start|>user
-Please transcribe all handwritten text in this image, preserving layout and line breaks.
+First describe what you see in this image, including any visible characteristics of the handwriting, layout, or document structure. Then, transcribe all handwritten text, preserving layout and line breaks.
 <|im_end|>
 <|im_start|>assistant
-I'll transcribe the handwritten text from the image, maintaining its layout:
+I'll first describe what I see in the image, then provide the transcription:
+
+Description:
 """
 
             self.logger.info("Preparing inputs with processor...")
