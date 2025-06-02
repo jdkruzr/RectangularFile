@@ -359,9 +359,26 @@ Description:
                 torch.cuda.empty_cache()
                 self._log_memory_usage("After cleanup")
 
+            # Log the complete response for debugging
+            self.logger.info("=== Complete model response ===")
+            self.logger.info(generated_text)
+            self.logger.info("===============================")
+
+            # Extract and log the description separately
             response_start = generated_text.find("<|im_start|>assistant")
             if response_start != -1:
-                text_start = generated_text.find("\n", response_start) + 1
+                text_start = generated_text.find("Description:", response_start)
+                if text_start != -1:
+                    description_end = generated_text.find("Transcription:", text_start)
+                    if description_end != -1:
+                        description = generated_text[text_start:description_end].strip()
+                        self.logger.info("=== Model's description of image ===")
+                        self.logger.info(description)
+                        self.logger.info("===================================")
+                        text_start = description_end + len("Transcription:")
+                    else:
+                        text_start = text_start + len("Description:")
+                
                 text_end = generated_text.find("<|im_end|>", text_start)
                 if text_end == -1:
                     text_end = None
@@ -370,7 +387,9 @@ Description:
                 text = generated_text.strip()
 
             text_preview = text[:100] + "..." if text else "[No text recognized]"
-            self.logger.info(f"Recognized text preview: {text_preview}")
+            self.logger.info("=== Transcription preview ===")
+            self.logger.info(text_preview)
+            self.logger.info("============================")
 
             return text, 0.95 if text else 0.0
 
