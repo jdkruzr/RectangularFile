@@ -320,8 +320,8 @@ Description:
 
             self.logger.info("Preparing inputs with processor...")
             inputs = self.processor(
-                text=prompt,
-                images=image,
+                text=[prompt],
+                images=[image],
                 return_tensors="pt"
             )
 
