@@ -374,20 +374,20 @@ class DatabaseManager:
                     WHERE id = ?
                 """, (datetime.now(), datetime.now(), doc_id))
                 
-                # Store individual page data
+                # Store individual page data - FIX THE SYNTAX ERROR HERE
                 for page_number, data in page_data.items():
                     cursor.execute("""
                         INSERT INTO pdf_text_content (
                             pdf_id,
                             page_number,
                             ocr_text,
-                            processed_at.
+                            processed_at,
                             image_path
                         ) VALUES (?, ?, ?, ?, ?)
                         ON CONFLICT (pdf_id, page_number) 
                         DO UPDATE SET
                             ocr_text = excluded.ocr_text,
-                            processed_at = excluded.processed_at
+                            processed_at = excluded.processed_at,
                             image_path = excluded.image_path
                     """, (
                         doc_id,
