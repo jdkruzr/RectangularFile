@@ -663,7 +663,7 @@ class DatabaseManager:
 
     def search_documents(self, query: str, limit: int = 20) -> List[Dict]:
         """
-        Search for documents containing the query text.
+        Search for documents containing the query text in either extracted text or OCR text.
         
         Args:
             query: The search query
@@ -681,16 +681,14 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # First get documents with exact matches
-                results = []
-                
                 # Build a query that ranks documents by number of keyword matches
-                placeholders = ", ".join(["?"] * len(keywords))
                 like_clauses = []
                 params = []
                 
                 for keyword in keywords:
-                    like_clauses.append("LOWER(text_content) LIKE ?")
+                    # Search in both text_content (PDFMiner) and ocr_text (Qwen)
+                    like_clauses.append("(LOWER(p.text_content) LIKE ? OR LOWER(p.ocr_text) LIKE ?)")
+                    params.append(f"%{keyword}%")
                     params.append(f"%{keyword}%")
                 
                 # Query across all pages of all documents
@@ -721,6 +719,7 @@ class DatabaseManager:
                 """, params + [limit])
                 
                 # Convert to list of dictionaries
+                results = []
                 for row in cursor.fetchall():
                     doc = dict(row)
                     
@@ -731,7 +730,7 @@ class DatabaseManager:
                     results.append(doc)
                     
                 return results
-                
+                    
         except sqlite3.Error as e:
             self.logger.error(f"Error searching documents: {e}")
             return []
@@ -759,7 +758,7 @@ class DatabaseManager:
                 
                 # Get text content from all pages
                 cursor.execute("""
-                    SELECT page_number, text_content
+                    SELECT page_number, text_content, ocr_text
                     FROM pdf_text_content
                     WHERE pdf_id = ?
                     ORDER BY page_number
@@ -770,59 +769,76 @@ class DatabaseManager:
                 # Find snippets in each page
                 for page in pages:
                     page_number = page['page_number']
-                    text = page['text_content']
-                    text_lower = text.lower()
                     
-                    for keyword in keywords:
-                        start_pos = 0
-                        while len(snippets) < max_snippets:
-                            pos = text_lower.find(keyword.lower(), start_pos)
-                            if pos == -1:
-                                break
-                                
-                            # Get snippet with context
-                            snippet_start = max(0, pos - context_chars)
-                            snippet_end = min(len(text), pos + len(keyword) + context_chars)
-                            
-                            # Find word boundaries
-                            while snippet_start > 0 and text[snippet_start].isalnum():
-                                snippet_start -= 1
-                                
-                            while snippet_end < len(text) and text[snippet_end].isalnum():
-                                snippet_end += 1
-                                
-                            snippet_text = text[snippet_start:snippet_end]
-                            
-                            # Add ellipsis if not at boundaries
-                            if snippet_start > 0:
-                                snippet_text = "..." + snippet_text
-                            if snippet_end < len(text):
-                                snippet_text = snippet_text + "..."
-                                
-                            # Highlight the keyword (for HTML display)
-                            highlight_start = pos - snippet_start
-                            highlight_end = highlight_start + len(keyword)
-                            highlighted_text = (
-                                snippet_text[:highlight_start] +
-                                "<mark>" +
-                                snippet_text[highlight_start:highlight_end] +
-                                "</mark>" +
-                                snippet_text[highlight_end:]
-                            )
-                            
-                            snippets.append({
-                                'page': page_number,
-                                'text': highlighted_text
-                            })
-                            
-                            # Move to next occurrence
-                            start_pos = pos + len(keyword)
+                    # Process extracted text
+                    if page['text_content']:
+                        text = page['text_content']
+                        text_lower = text.lower()
+                        self._find_snippets_in_text(text, text_lower, keywords, page_number, snippets, max_snippets, context_chars, "extracted")
                     
+                    # Process OCR text
+                    if page['ocr_text']:
+                        text = page['ocr_text']
+                        text_lower = text.lower()
+                        self._find_snippets_in_text(text, text_lower, keywords, page_number, snippets, max_snippets, context_chars, "ocr")
+                    
+                    # If we have enough snippets, stop searching
+                    if len(snippets) >= max_snippets:
+                        break
+                        
                 return snippets
-                
+                    
         except sqlite3.Error as e:
             self.logger.error(f"Error getting search snippets: {e}")
             return []
+        
+    def _find_snippets_in_text(self, text, text_lower, keywords, page_number, snippets, max_snippets, context_chars, source_type):
+        """Helper method to find snippets in a text string."""
+        for keyword in keywords:
+            start_pos = 0
+            while len(snippets) < max_snippets:
+                pos = text_lower.find(keyword.lower(), start_pos)
+                if pos == -1:
+                    break
+                    
+                # Get snippet with context
+                snippet_start = max(0, pos - context_chars)
+                snippet_end = min(len(text), pos + len(keyword) + context_chars)
+                
+                # Find word boundaries
+                while snippet_start > 0 and text[snippet_start].isalnum():
+                    snippet_start -= 1
+                    
+                while snippet_end < len(text) and text[snippet_end].isalnum():
+                    snippet_end += 1
+                    
+                snippet_text = text[snippet_start:snippet_end]
+                
+                # Add ellipsis if not at boundaries
+                if snippet_start > 0:
+                    snippet_text = "..." + snippet_text
+                if snippet_end < len(text):
+                    snippet_text = snippet_text + "..."
+                    
+                # Highlight the keyword (for HTML display)
+                highlight_start = pos - snippet_start
+                highlight_end = highlight_start + len(keyword)
+                highlighted_text = (
+                    snippet_text[:highlight_start] +
+                    "<mark>" +
+                    snippet_text[highlight_start:highlight_end] +
+                    "</mark>" +
+                    snippet_text[highlight_end:]
+                )
+                
+                snippets.append({
+                    'page': page_number,
+                    'text': highlighted_text,
+                    'source': source_type  # Indicate if this is from extracted text or OCR
+                })
+                
+                # Move to next occurrence
+                start_pos = pos + len(keyword)
     
     def reset_document_status_by_id(self, doc_id: int) -> bool:
         """

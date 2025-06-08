@@ -248,3 +248,18 @@ input[type="number"], input[type="text"], select {
     padding-top: 10px;
     border-top: 1px solid #eee;
 }
+
+.source-label {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-right: 5px;
+    font-size: 0.8em;
+    color: white;
+}
+.source-label.extracted {
+    background-color: #6c757d;
+}
+.source-label.ocr {
+    background-color: #28a745;
+}

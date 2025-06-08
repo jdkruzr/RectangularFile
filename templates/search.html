@@ -114,6 +114,7 @@
                         {% for snippet in result.snippets %}
                             <div class="result-snippet">
                                 <span class="page-label">Page {{ snippet.page }}</span>
+                                <span class="source-label {{ snippet.source }}">{{ snippet.source|capitalize }}</span>
                                 {{ snippet.text|safe }}
                             </div>
                         {% endfor %}
