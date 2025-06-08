@@ -495,7 +495,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
 
                 if page_number is not None:
-                    # Query for a specific page - include all needed columns
+                    # Query for a specific page
                     cursor.execute("""
                         SELECT text_content, ocr_text, processed_at, image_path
                         FROM pdf_text_content
@@ -504,21 +504,26 @@ class DatabaseManager:
                     row = cursor.fetchone()
 
                     if row:
-                        # Safely access columns that might not exist
-                        text_content = row['text_content'] if 'text_content' in row.keys() else None
-                        ocr_text = row['ocr_text'] if 'ocr_text' in row.keys() else None
-                        image_path = row['image_path'] if 'image_path' in row.keys() else None
+                        # Choose the best text content available
+                        text = self._choose_best_text_content(row)
+                        
+                        # Safely access image_path
+                        try:
+                            image_path = row['image_path']
+                        except (IndexError, KeyError):
+                            image_path = None
                         
                         return {
                             'page_number': page_number,
-                            'text': text_content or ocr_text or '',
+                            'text': text,
                             'processed_at': row['processed_at'],
-                            'image_path': image_path
+                            'image_path': image_path,
+                            'source': 'ocr' if row['ocr_text'] and row['ocr_text'].strip() else 'extracted'
                         }
                     return None
 
                 else:
-                    # Query for all pages - include all needed columns
+                    # Query for all pages
                     cursor.execute("""
                         SELECT page_number, text_content, ocr_text, processed_at, image_path
                         FROM pdf_text_content
@@ -528,21 +533,59 @@ class DatabaseManager:
 
                     results = {}
                     for row in cursor.fetchall():
-                        # Safely access columns that might not exist
-                        text_content = row['text_content'] if 'text_content' in row.keys() else None
-                        ocr_text = row['ocr_text'] if 'ocr_text' in row.keys() else None
-                        image_path = row['image_path'] if 'image_path' in row.keys() else None
+                        # Choose the best text content available
+                        text = self._choose_best_text_content(row)
+                        
+                        # Safely access image_path
+                        try:
+                            image_path = row['image_path']
+                        except (IndexError, KeyError):
+                            image_path = None
                         
                         results[row['page_number']] = {
-                            'text': text_content or ocr_text or '',
+                            'text': text,
                             'processed_at': row['processed_at'],
-                            'image_path': image_path
+                            'image_path': image_path,
+                            'source': 'ocr' if row['ocr_text'] and row['ocr_text'].strip() else 'extracted'
                         }
                     return results
 
         except sqlite3.Error as e:
             self.logger.error(f"Error retrieving text for document {doc_id}: {e}")
             return None
+        
+    def _choose_best_text_content(self, row) -> str:
+        """
+        Choose the best text content from a database row.
+        Prioritizes OCR text, but falls back to extracted text if OCR isn't available.
+        
+        Args:
+            row: A database row containing text_content and ocr_text
+            
+        Returns:
+            The best available text content
+        """
+        # Safely access the text columns
+        try:
+            ocr_text = row['ocr_text']
+        except (IndexError, KeyError):
+            ocr_text = None
+            
+        try:
+            extracted_text = row['text_content']
+        except (IndexError, KeyError):
+            extracted_text = None
+        
+        # Prioritize OCR text if it exists and isn't just whitespace
+        if ocr_text and ocr_text.strip():
+            return ocr_text
+        
+        # Fall back to extracted text
+        if extracted_text and extracted_text.strip():
+            return extracted_text
+        
+        # If neither is available, return an empty string
+        return ""
 
     def mark_text_extraction_started(self, doc_id: int) -> bool:
         try:
