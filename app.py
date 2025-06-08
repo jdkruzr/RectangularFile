@@ -525,11 +525,6 @@ def on_file_removed(filename: str):
     else:
         print(f"Failed to mark document as removed in database: {filename}")
 
-@app.before_first_request
-def start_queue_processing():
-    """Start the OCR queue processing when the app starts."""
-    ocr_queue.start_processing()
-
 @app.before_request
 def initialize_file_watcher():
     """Initialize the file watcher before handling the first request."""
@@ -539,6 +534,9 @@ def initialize_file_watcher():
         file_watcher.register_callback(on_new_file)
         file_watcher.register_removal_callback(on_file_removed)
         file_watcher.start()
+
+        ocr_queue.start_processing()
+
         file_watcher_initialized = True
         print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
 
