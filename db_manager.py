@@ -177,44 +177,6 @@ class DatabaseManager:
             FOREIGN KEY (topic_id) REFERENCES topics(id)
         );
 
-        CREATE TABLE IF NOT EXISTS handwriting_profiles (
-            id INTEGER PRIMARY KEY,
-            profile_name TEXT UNIQUE,
-            created_at TIMESTAMP,
-            last_updated_at TIMESTAMP,
-            training_sample_count INTEGER DEFAULT 0,
-            average_confidence_score FLOAT
-        );
-
-        CREATE TABLE IF NOT EXISTS handwriting_training_data (
-            id INTEGER PRIMARY KEY,
-            profile_id INTEGER,
-            original_text TEXT,
-            corrected_text TEXT,
-            context_before TEXT,
-            context_after TEXT,
-            page_image_path TEXT,
-            x1 INTEGER,
-            y1 INTEGER,
-            x2 INTEGER,
-            y2 INTEGER,
-            created_at TIMESTAMP,
-            FOREIGN KEY (profile_id) REFERENCES handwriting_profiles(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS training_jobs (
-            id INTEGER PRIMARY KEY,
-            profile_id INTEGER,
-            status TEXT DEFAULT 'pending',
-            started_at TIMESTAMP,
-            completed_at TIMESTAMP,
-            error_message TEXT,
-            model_path TEXT,
-            sample_count INTEGER,
-            accuracy_improvement FLOAT,
-            FOREIGN KEY (profile_id) REFERENCES handwriting_profiles(id)
-        );
-
         CREATE INDEX IF NOT EXISTS idx_pdf_docs_status ON pdf_documents(processing_status);
         CREATE INDEX IF NOT EXISTS idx_pdf_docs_path ON pdf_documents(relative_path);
         CREATE INDEX IF NOT EXISTS idx_text_content_pdf ON pdf_text_content(pdf_id);

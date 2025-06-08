@@ -66,7 +66,6 @@
         <ul>
             <li><a href="/"{% if request.path == '/' %} class="active"{% endif %}>Home</a></li>
             <li><a href="/search"{% if request.path.startswith('/search') %} class="active"{% endif %}>Search</a></li>
-            <li><a href="/training"{% if request.path.startswith('/training') %} class="active"{% endif %}>Training</a></li>
             <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
         </ul>
     </div>
@@ -99,9 +98,6 @@
             <dt>Confidence:</dt>
             <dd>{{ "%.1f"|format(document.confidence_score * 100) }}%</dd>
         </dl>
-        <div class="document-actions">
-            <a href="/training/correct/{{ document.id }}/1" class="button">Correct for Training</a>
-        </div>
     </div>
     
     <div class="document-viewer">
