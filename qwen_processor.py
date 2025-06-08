@@ -19,6 +19,8 @@ from transformers import (
 from PIL import Image
 from pdf2image import convert_from_path
 from db_manager import DatabaseManager
+# Import the vision utility
+from qwen_vl_utils import process_vision_info
 
 # Increase the PIL image size limit
 Image.MAX_IMAGE_PIXELS = 200000000
@@ -299,30 +301,47 @@ class QwenVLProcessor:
             return False
 
     def _process_image(self, image: Image.Image) -> Tuple[str, float]:
-        """Process a single image with Qwen2.5-VL."""
+        """Process a single image with Qwen2.5-VL using the approach from model_test.py."""
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
             self._log_memory_usage("Before image processing")
 
             image = self._resize_image_if_needed(image)
-
-            prompt = """<|im_start|>system
-You are a helpful assistant that describes and transcribes handwritten text from images.
-<|im_end|>
-<|im_start|>user
-First describe what you see in this image, including any visible characteristics of the handwriting, layout, or document structure. Then, transcribe all handwritten text, preserving layout and line breaks.
-<|im_end|>
-<|im_start|>assistant
-I'll first describe what I see in the image, then provide the transcription:
-
-Description:
-"""
-
+            
+            # Create message structure matching model_test.py approach
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "image": image,
+                            "resized_height": image.height,
+                            "resized_width": image.width,
+                        },
+                        {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible."},
+                    ],
+                }
+            ]
+            
+            # Use apply_chat_template to format the text properly
+            self.logger.info("Applying chat template...")
+            text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            
+            # Process vision information with the utility function
+            self.logger.info("Processing vision information...")
+            image_inputs, video_inputs = process_vision_info(messages)
+            
+            # Prepare inputs with the same approach as model_test.py
             self.logger.info("Preparing inputs with processor...")
             inputs = self.processor(
-                text=[prompt],
-                images=[image],
-                return_tensors="pt"
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
             )
 
             self.logger.info("Processor output details:")
@@ -340,7 +359,11 @@ Description:
 
             self.logger.info("Generating transcription...")
             with torch.no_grad():
-                outputs = self.model.generate(
+                # Extract input_ids for trimming output later
+                input_ids = inputs.input_ids
+                
+                # Generate output
+                generated_ids = self.model.generate(
                     **inputs,
                     max_new_tokens=500,
                     do_sample=False,
@@ -348,43 +371,29 @@ Description:
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id
                 )
+                
+                # Trim input tokens from output, like in model_test.py
+                generated_ids_trimmed = [
+                    out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
+                ]
+                
+                # Decode output
+                output_text = self.processor.batch_decode(
+                    generated_ids_trimmed, 
+                    skip_special_tokens=True, 
+                    clean_up_tokenization_spaces=False
+                )
+                
+                # Use the first (and only) result
+                text = output_text[0]
 
             self._log_memory_usage("After generation")
             self.logger.info("Generation completed")
 
-            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=False)
-
-            del inputs, outputs
+            del inputs, generated_ids, generated_ids_trimmed
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 self._log_memory_usage("After cleanup")
-
-            # Log the complete response for debugging
-            self.logger.info("=== Complete model response ===")
-            self.logger.info(generated_text)
-            self.logger.info("===============================")
-
-            # Extract and log the description separately
-            response_start = generated_text.find("<|im_start|>assistant")
-            if response_start != -1:
-                text_start = generated_text.find("Description:", response_start)
-                if text_start != -1:
-                    description_end = generated_text.find("Transcription:", text_start)
-                    if description_end != -1:
-                        description = generated_text[text_start:description_end].strip()
-                        self.logger.info("=== Model's description of image ===")
-                        self.logger.info(description)
-                        self.logger.info("===================================")
-                        text_start = description_end + len("Transcription:")
-                    else:
-                        text_start = text_start + len("Description:")
-                
-                text_end = generated_text.find("<|im_end|>", text_start)
-                if text_end == -1:
-                    text_end = None
-                text = generated_text[text_start:text_end].strip()
-            else:
-                text = generated_text.strip()
 
             text_preview = text[:100] + "..." if text else "[No text recognized]"
             self.logger.info("=== Transcription preview ===")
