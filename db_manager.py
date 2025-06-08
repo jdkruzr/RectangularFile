@@ -118,6 +118,7 @@ class DatabaseManager:
             text_content TEXT,
             processed_at TIMESTAMP,
             ocr_text TEXT,
+            image_path TEXT,
             PRIMARY KEY (pdf_id, page_number),
             FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
         );
@@ -380,17 +381,20 @@ class DatabaseManager:
                             pdf_id,
                             page_number,
                             ocr_text,
-                            processed_at
-                        ) VALUES (?, ?, ?, ?)
+                            processed_at.
+                            image_path
+                        ) VALUES (?, ?, ?, ?, ?)
                         ON CONFLICT (pdf_id, page_number) 
                         DO UPDATE SET
                             ocr_text = excluded.ocr_text,
                             processed_at = excluded.processed_at
+                            image_path = excluded.image_path
                     """, (
                         doc_id,
                         page_number,
                         data['text'],
-                        data['processed_at']
+                        data['processed_at'],
+                        data.get('image_path', None)
                     ))
                 
                 self.logger.info(
@@ -502,7 +506,8 @@ class DatabaseManager:
                         return {
                             'page_number': page_number,
                             'text': row['text_content'],
-                            'processed_at': row['processed_at']
+                            'processed_at': row['processed_at'],
+                            'image_path': row['image_path']
                         }
                     return None
 
@@ -517,8 +522,9 @@ class DatabaseManager:
                     results = {}
                     for row in cursor.fetchall():
                         results[row['page_number']] = {
-                            'text': row['text_content'],
-                            'processed_at': row['processed_at']
+                            'text': row['text_content'] or row['ocr_text'],
+                            'processed_at': row['processed_at'],
+                            'image_path': row['image_path']
                         }
                     return results
 

@@ -263,3 +263,27 @@ input[type="number"], input[type="text"], select {
 .source-label.ocr {
     background-color: #28a745;
 }
+
+/* Document image styles */
+.document-image {
+    text-align: center;
+    margin: 20px 0;
+    border: 1px solid #ddd;
+    padding: 10px;
+    background-color: #f8f9fa;
+}
+
+.page-image {
+    max-width: 100%;
+    height: auto;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* Update page-text style to have a border to separate it from the image */
+.page-text {
+    line-height: 1.6;
+    white-space: pre-wrap;
+    border-top: 1px solid #eee;
+    margin-top: 20px;
+    padding-top: 20px;
+}

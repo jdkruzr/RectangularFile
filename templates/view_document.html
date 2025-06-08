@@ -94,8 +94,17 @@
                 <div class="page-content">
                     <div class="page-header">
                         <strong>Page {{ page_num }}</strong>
-    </div>
+                    </div>
+                    
+                    <!-- Display the document image -->
+                    {% if page.image_path %}
+                    <div class="document-image">
+                        <img src="{{ url_for('document_image', doc_id=document.id, page_num=page_num) }}" 
+                            alt="Page {{ page_num }}" class="page-image">
+                    </div>
+                    {% endif %}
 
+                    <!-- Display the OCR text below the image -->
                     <div class="page-text" id="page-{{ page_num }}">
                         {{ page.text }}
                     </div>

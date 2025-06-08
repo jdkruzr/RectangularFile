@@ -87,20 +87,20 @@ class QwenVLProcessor:
 
             self.logger.info(memory_info)
 
-    def _resize_image_if_needed(self, image: Image.Image) -> Image.Image:
-        """Resize image if it exceeds memory-safe dimensions."""
+    def _resize_image_if_needed(self, image: Image.Image, doc_id: int, page_num: int) -> Tuple[Image.Image, str]:
+        """Resize image if it exceeds memory-safe dimensions and save it to disk."""
         debug_dir = Path("/mnt/rectangularfile/debug_images")
         debug_dir.mkdir(exist_ok=True)
         
-        # Save original image
+        # Create a timestamp and filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        original_path = debug_dir / f"original_{timestamp}.jpg"
+        original_path = debug_dir / f"original_{timestamp}_doc_{doc_id}_page_{page_num}.jpg"
         image.save(original_path)
         self.logger.info(f"Saved original image to {original_path}")
         
         original_pixels = image.width * image.height
         if original_pixels <= self.target_image_pixels:
-            return image
+            return image, str(original_path)
 
         ratio = (self.target_image_pixels / original_pixels) ** 0.5
         new_width = int(image.width * ratio)
@@ -115,11 +115,11 @@ class QwenVLProcessor:
         resized_image = image.resize((new_width, new_height), Image.LANCZOS)
         
         # Save resized image
-        resized_path = debug_dir / f"resized_{timestamp}.jpg"
+        resized_path = debug_dir / f"resized_{timestamp}_doc_{doc_id}_page_{page_num}.jpg"
         resized_image.save(resized_path)
         self.logger.info(f"Saved resized image to {resized_path}")
         
-        return resized_image
+        return resized_image, str(original_path)  # Return the original image path
 
     def _load_model(self):
         """Load the model, tokenizer, and processor if not already loaded."""
@@ -249,6 +249,10 @@ class QwenVLProcessor:
                         f"Recognizing text on page {page_num}/{len(processed_images)}"
                     )
 
+                    # Resize the image and get the path
+                    image, image_path = self._resize_image_if_needed(image, doc_id, page_num)
+                    
+                    # Process the image
                     text = self._process_image(image)
 
                     word_count = len(text.split()) if text else 0
@@ -256,12 +260,14 @@ class QwenVLProcessor:
 
                     text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
                     self.logger.info(f"Text sample: {text_sample}...")
+                    self.logger.info(f"Recognized {word_count} words")
 
                     page_data[page_num] = {
                         'text': text,
                         'word_count': word_count,
                         'char_count': char_count,
-                        'processed_at': datetime.now()
+                        'processed_at': datetime.now(),
+                        'image_path': image_path  # Store the image path
                     }
 
                     if self.device == "cuda":
@@ -274,7 +280,7 @@ class QwenVLProcessor:
 
                 if success:
                     total_words = sum(page['word_count'] for page in page_data.values())
-
+                    
                     self.logger.info(
                         f"Successfully processed document {doc_id}\n"
                         f"Total words: {total_words}\n"
@@ -301,8 +307,6 @@ class QwenVLProcessor:
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
             self._log_memory_usage("Before image processing")
-
-            image = self._resize_image_if_needed(image)
             
             # Create message structure matching model_test.py approach
             messages = [
@@ -402,4 +406,4 @@ class QwenVLProcessor:
             self.logger.error(f"Error processing image: {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return "", 0.0
+            return ""

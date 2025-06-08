@@ -13,6 +13,8 @@ from functools import partial
 import multiprocessing
 from qwen_processor import QwenVLProcessor
 from ocr_queue_manager import OCRQueueManager
+import glob
+from flask import send_file
 
 app = Flask(__name__)
 
@@ -304,6 +306,27 @@ def view_document(doc_id):
         text_content=text_content,
         highlight=highlight
     )
+
+@app.route('/document_image/<int:doc_id>/<int:page_num>')
+def document_image(doc_id, page_num):
+    """Serve a document page image."""
+    document = db.get_document_by_id(doc_id)
+    if not document:
+        return jsonify(error="Document not found"), 404
+    
+    # Get the page text data which includes image path
+    page_text = db.get_document_text(doc_id, page_num)
+    
+    if not page_text or not page_text.get('image_path'):
+        return jsonify(error="Image path not found"), 404
+        
+    image_path = page_text['image_path']
+    
+    # Verify the file exists
+    if not os.path.exists(image_path):
+        return jsonify(error="Image file not found"), 404
+        
+    return send_file(image_path, mimetype='image/jpeg')
 
 @app.route('/files/<int:doc_id>')
 def document_inspector(doc_id):
