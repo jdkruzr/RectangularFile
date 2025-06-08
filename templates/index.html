@@ -28,6 +28,20 @@
     <ul id="fileList">
     </ul>
 
+    <div class="queue-status-panel" id="queueStatus" style="display: none;">
+        <h3>OCR Processing Queue</h3>
+        <div id="queueDetails">
+            <p>Queue size: <span id="queueSize">0</span></p>
+            <div id="currentlyProcessing" style="display: none;">
+                <p>Currently processing: <span id="processingFilename"></span></p>
+                <p>Processing time: <span id="processingTime">0</span> seconds</p>
+                <div class="progress-container" style="width: 100%;">
+                    <div id="processingProgressBar" class="progress-bar" style="width: 0%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         function createFileCard(file) {
                         const li = document.createElement('li');
@@ -231,6 +245,50 @@
                     alert(`Error fetching file data: ${error}`);
                 });
         }
+
+        // Update queue status every 3 seconds
+        setInterval(function() {
+            fetch('/ocr_queue')
+                .then(response => response.json())
+                .then(data => {
+                    const queuePanel = document.getElementById('queueStatus');
+                    const queueSize = document.getElementById('queueSize');
+                    const currentlyProcessing = document.getElementById('currentlyProcessing');
+                    const processingFilename = document.getElementById('processingFilename');
+                    const processingTime = document.getElementById('processingTime');
+                    const progressBar = document.getElementById('processingProgressBar');
+
+                    if (data.is_running) {
+                        queuePanel.style.display = 'block';
+                        queueSize.textContent = data.queue_size;
+
+                        if (data.currently_processing) {
+                            currentlyProcessing.style.display = 'block';
+                            processingFilename.textContent = data.currently_processing.filename;
+                            processingTime.textContent = Math.round(data.currently_processing.processing_time);
+
+                            // Get the current progress from the document
+                            fetch('/files')
+                                .then(response => response.json())
+                                .then(filesData => {
+                                    const docId = data.currently_processing.doc_id;
+                                    const fileInfo = filesData.files.find(f => f.id === docId);
+
+                                    if (fileInfo && fileInfo.processing_progress !== undefined) {
+                                        progressBar.style.width = `${fileInfo.processing_progress}%`;
+                                    }
+                                });
+                        } else {
+                            currentlyProcessing.style.display = 'none';
+                        }
+                    } else if (data.queue_size === 0) {
+                        queuePanel.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching queue status:', error);
+                });
+        }, 3000);
     </script>
 </body>
 </html>

@@ -223,3 +223,28 @@ input[type="number"], input[type="text"], select {
 .ocr-button:hover {
     background-color: #7b1fa2;
 }
+
+/* Queue status panel */
+.queue-status-panel {
+    background-color: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.queue-status-panel h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+#queueDetails {
+    margin-top: 10px;
+}
+
+#currentlyProcessing {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}

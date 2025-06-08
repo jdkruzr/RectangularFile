@@ -9,3 +9,4 @@ transformers
 bitsandbytes
 accelerate
 torchvision
+qwenvlutils

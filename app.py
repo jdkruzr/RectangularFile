@@ -12,6 +12,7 @@ import sys
 from functools import partial
 import multiprocessing
 from qwen_processor import QwenVLProcessor
+from ocr_queue_manager import OCRQueueManager
 
 app = Flask(__name__)
 
@@ -21,6 +22,7 @@ file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTER
 db = DatabaseManager("pdf_index.db")
 pdf_processor = PDFProcessor()
 ocr_processor = QwenVLProcessor()
+ocr_queue = OCRQueueManager(db, ocr_processor)
 
 new_files: List[str] = []
 removed_files: List[str] = []
@@ -51,6 +53,9 @@ def cleanup():
     print("DEBUG: Cleanup function called from:")
     import traceback
     traceback.print_stack()
+    
+    print("Shutting down OCR queue...")
+    ocr_queue.stop_processing()
     
     print("Shutting down file watcher...")
     if file_watcher_initialized:
@@ -109,7 +114,7 @@ def reset_processing(doc_id):
         return jsonify(success=False, message="Document not found"), 404
 
     # Get the filepath
-    filepath = Path(os.path.join(UPLOAD_FOLDER, document['filename']))
+    filepath = Path(document['relative_path'])
     if not filepath.exists():
         return jsonify(success=False, message="File no longer exists"), 404
 
@@ -118,15 +123,19 @@ def reset_processing(doc_id):
         # Try text extraction first
         extracted = pdf_processor.process_document(filepath, doc_id, db)
         
-        # Always run OCR regardless of text extraction result
-        ocr_result = ocr_processor.process_document(filepath, doc_id, db)
-        
-        if ocr_result:
-            return jsonify(success=True, message=f"Reset and processed document {doc_id}")
+        # Queue for OCR processing
+        if ocr_queue.add_to_queue(doc_id, filepath):
+            return jsonify(success=True, message=f"Reset and queued document {doc_id} for OCR processing")
         else:
-            return jsonify(success=False, message="Reset succeeded but processing failed"), 500
+            return jsonify(success=False, message="Reset succeeded but queuing failed"), 500
     else:
         return jsonify(success=False, message="Failed to reset status"), 400
+
+@app.route('/ocr_queue')
+def ocr_queue_status():
+    """Get the status of the OCR processing queue."""
+    status = ocr_queue.get_queue_status()
+    return jsonify(status)
 
 @app.route('/files')
 def get_files():
@@ -497,14 +506,12 @@ def on_new_file(filename: str):
         # Try text extraction first
         extracted = pdf_processor.process_document(filepath, doc_id, db)
         
-        # Always run OCR processing regardless of text extraction result
-        print(f"Starting OCR processing for {filename}")
-        ocr_result = ocr_processor.process_document(filepath, doc_id, db)
-        
-        if ocr_result:
-            print(f"OCR processing started for {filename}")
+        # Queue the document for OCR processing instead of doing it immediately
+        print(f"Queuing {filename} for OCR processing")
+        if ocr_queue.add_to_queue(doc_id, filepath):
+            print(f"Document {filename} queued for OCR processing")
         else:
-            print(f"Failed to start OCR processing for {filename}")
+            print(f"Failed to queue document {filename} for OCR processing")
             
 def on_file_removed(filename: str):
     """Handle file removal."""
@@ -517,6 +524,11 @@ def on_file_removed(filename: str):
         print(f"Marked document as removed in database: {filename}")
     else:
         print(f"Failed to mark document as removed in database: {filename}")
+
+@app.before_first_request
+def start_queue_processing():
+    """Start the OCR queue processing when the app starts."""
+    ocr_queue.start_processing()
 
 @app.before_request
 def initialize_file_watcher():
