@@ -249,18 +249,16 @@ class QwenVLProcessor:
                         f"Recognizing text on page {page_num}/{len(processed_images)}"
                     )
 
-                    text, confidence = self._process_image(image)
+                    text = self._process_image(image)
 
                     word_count = len(text.split()) if text else 0
                     char_count = len(text) if text else 0
 
                     text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
                     self.logger.info(f"Text sample: {text_sample}...")
-                    self.logger.info(f"Recognized {word_count} words with confidence {confidence:.2f}")
 
                     page_data[page_num] = {
                         'text': text,
-                        'confidence': confidence,
                         'word_count': word_count,
                         'char_count': char_count,
                         'processed_at': datetime.now()
@@ -276,12 +274,10 @@ class QwenVLProcessor:
 
                 if success:
                     total_words = sum(page['word_count'] for page in page_data.values())
-                    avg_conf = sum(page['confidence'] for page in page_data.values()) / len(page_data) if page_data else 0
 
                     self.logger.info(
                         f"Successfully processed document {doc_id}\n"
                         f"Total words: {total_words}\n"
-                        f"Average confidence: {avg_conf:.2f}\n"
                         f"Pages processed: {len(page_data)}"
                     )
                 else:
