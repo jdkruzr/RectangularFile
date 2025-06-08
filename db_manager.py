@@ -504,11 +504,16 @@ class DatabaseManager:
                     row = cursor.fetchone()
 
                     if row:
+                        # Safely access columns that might not exist
+                        text_content = row['text_content'] if 'text_content' in row.keys() else None
+                        ocr_text = row['ocr_text'] if 'ocr_text' in row.keys() else None
+                        image_path = row['image_path'] if 'image_path' in row.keys() else None
+                        
                         return {
                             'page_number': page_number,
-                            'text': row['text_content'] or row['ocr_text'] or '',
+                            'text': text_content or ocr_text or '',
                             'processed_at': row['processed_at'],
-                            'image_path': row.get('image_path')  # Use get() to handle if column doesn't exist
+                            'image_path': image_path
                         }
                     return None
 
@@ -523,10 +528,15 @@ class DatabaseManager:
 
                     results = {}
                     for row in cursor.fetchall():
+                        # Safely access columns that might not exist
+                        text_content = row['text_content'] if 'text_content' in row.keys() else None
+                        ocr_text = row['ocr_text'] if 'ocr_text' in row.keys() else None
+                        image_path = row['image_path'] if 'image_path' in row.keys() else None
+                        
                         results[row['page_number']] = {
-                            'text': row['text_content'] or row['ocr_text'] or '',
+                            'text': text_content or ocr_text or '',
                             'processed_at': row['processed_at'],
-                            'image_path': row.get('image_path')  # Use get() to handle if column doesn't exist
+                            'image_path': image_path
                         }
                     return results
 
