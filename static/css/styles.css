@@ -287,3 +287,54 @@ input[type="number"], input[type="text"], select {
     margin-top: 20px;
     padding-top: 20px;
 }
+
+/* Page content styles */
+.page-content {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.page-header {
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-left: 4px solid #007bff;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.source-label {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    color: white;
+    background-color: #6c757d;
+}
+
+.source-label.ocr {
+    background-color: #28a745;
+}
+
+.source-label.extracted {
+    background-color: #6c757d;
+}
+
+.text-display {
+    line-height: 1.6;
+    white-space: pre-wrap;
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.comparison-content {
+    margin-bottom: 40px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}

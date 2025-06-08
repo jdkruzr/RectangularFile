@@ -338,41 +338,46 @@ def document_inspector(doc_id):
     # Get text extraction content
     text_content = db.get_document_text(doc_id) or {}
     
-    # Get OCR content
-    ocr_content = {}
+    # Get OCR content from text_content (since now get_document_text already returns the best text)
+    ocr_content = {
+        page_num: page_data 
+        for page_num, page_data in text_content.items() 
+        if page_data.get('source') == 'ocr'
+    }
+    
+    # Get extract content separately for comparison
+    extracted_content = {}
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT page_number, ocr_text, ocr_confidence_score, processed_at
+                SELECT page_number, text_content, processed_at
                 FROM pdf_text_content
-                WHERE pdf_id = ? AND ocr_text IS NOT NULL
+                WHERE pdf_id = ? AND text_content IS NOT NULL
                 ORDER BY page_number
             """, (doc_id,))
             
             for row in cursor.fetchall():
-                ocr_content[row['page_number']] = {
-                    'text': row['ocr_text'],
-                    'confidence': row['ocr_confidence_score'],
-                    'processed_at': row['processed_at']
+                extracted_content[row['page_number']] = {
+                    'text': row['text_content'],
+                    'processed_at': row['processed_at'],
+                    'source': 'extracted'
                 }
     except Exception as e:
-        print(f"Error fetching OCR content: {e}")
+        print(f"Error fetching extracted content: {e}")
     
     # Pre-compute common pages
-    common_pages = sorted(set(text_content.keys()) & set(ocr_content.keys()))
+    common_pages = sorted(set(extracted_content.keys()) & set(ocr_content.keys()))
     
     # Get statistics
     stats = {
         'text_extraction': {
-            'page_count': len(text_content) if text_content else 0,
-            'word_count': document.get('word_count', 0),
-            'avg_confidence': document.get('confidence_score', 0) * 100 if document.get('confidence_score') else 0
+            'page_count': len(extracted_content),
+            'word_count': document.get('word_count', 0)
         },
         'ocr': {
             'page_count': len(ocr_content),
-            'word_count': sum(len(page.get('text', '').split()) for page in ocr_content.values()),
-            'avg_confidence': sum(page.get('confidence', 0) for page in ocr_content.values()) / len(ocr_content) * 100 if ocr_content else 0
+            'word_count': sum(len(page.get('text', '').split()) for page in ocr_content.values())
         }
     }
     
@@ -380,6 +385,7 @@ def document_inspector(doc_id):
         'document_inspector.html',
         document=document,
         text_content=text_content,
+        extracted_content=extracted_content,
         ocr_content=ocr_content,
         stats=stats,
         common_pages=common_pages

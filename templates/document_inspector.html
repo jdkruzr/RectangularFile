@@ -211,98 +211,65 @@
                 <div class="tab" data-target="tab-comparison">Comparison</div>
             </div>
             
-            <div id="tab-extracted" class="tab-content active">
-                <div class="page-selector">
-                    <label for="extracted-page-select">Select Page:</label>
-                    <select id="extracted-page-select">
-                        {% if text_content %}
-                            {% for page_num in text_content %}
-                                <option value="{{ page_num }}">Page {{ page_num }}</option>
-                            {% endfor %}
-                        {% else %}
-                            <option value="none">No pages available</option>
-                        {% endif %}
-                    </select>
+<!-- Replace the entire tab content sections with this new approach -->
+
+<div id="tab-extracted" class="tab-content active">
+    {% if text_content %}
+        {% for page_num, page in text_content.items() %}
+            <div class="page-content">
+                <div class="page-header">
+                    <strong>Page {{ page_num }}</strong>
+                    <span class="source-label">{{ page.source|capitalize }}</span>
                 </div>
                 
-                {% if text_content %}
-                    {% for page_num, page in text_content.items() %}
-                        <div class="page-content" id="extracted-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
-                            <div class="page-header">
-                                <strong>Page {{ page_num }}</strong>
-                            </div>
-                            
-                            <div class="text-display">{{ page.text }}</div>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <p>No extracted text available.</p>
-                {% endif %}
+                <div class="text-display">{{ page.text }}</div>
             </div>
-            
-            <div id="tab-ocr" class="tab-content">
-                <div class="page-selector">
-                    <label for="ocr-page-select">Select Page:</label>
-                    <select id="ocr-page-select">
-                        {% if ocr_content %}
-                            {% for page_num in ocr_content %}
-                                <option value="{{ page_num }}">Page {{ page_num }}</option>
-                            {% endfor %}
-                        {% else %}
-                            <option value="none">No pages available</option>
-                        {% endif %}
-                    </select>
+        {% endfor %}
+    {% else %}
+        <p>No extracted text available.</p>
+    {% endif %}
+</div>
+
+<div id="tab-ocr" class="tab-content">
+    {% if ocr_content %}
+        {% for page_num, page in ocr_content.items() %}
+            <div class="page-content">
+                <div class="page-header">
+                    <strong>Page {{ page_num }}</strong>
                 </div>
                 
-                {% if ocr_content %}
-                    {% for page_num, page in ocr_content.items() %}
-                        <div class="page-content" id="ocr-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
-                            <div class="page-header">
-                                <strong>Page {{ page_num }}</strong>
-                            </div>
-                            
-                            <div class="text-display">{{ page.text }}</div>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <p>No OCR results available.</p>
-                {% endif %}
+                <div class="text-display">{{ page.text }}</div>
             </div>
-            
-            <div id="tab-comparison" class="tab-content">
-                <div class="page-selector">
-                    <label for="comparison-page-select">Select Page:</label>
-                    <select id="comparison-page-select">
-                        {% if common_pages %}
-                            {% for page_num in common_pages %}
-                                <option value="{{ page_num }}">Page {{ page_num }}</option>
-                            {% endfor %}
-                        {% else %}
-                            <option value="none">No common pages available</option>
-                        {% endif %}
-                    </select>
+        {% endfor %}
+    {% else %}
+        <p>No OCR results available.</p>
+    {% endif %}
+</div>
+
+<div id="tab-comparison" class="tab-content">
+    {% if common_pages %}
+        {% for page_num in common_pages %}
+            <div class="comparison-content">
+                <div class="page-header">
+                    <strong>Page {{ page_num }}</strong>
                 </div>
                 
-                {% if common_pages %}
-                    {% for page_num in common_pages %}
-                        <div class="comparison-content" id="comparison-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                                <div>
-                                    <h4>Extracted Text</h4>
-                                    <div class="text-display">{{ text_content[page_num].text }}</div>
-                                </div>
-                                <div>
-                                    <h4>OCR Result</h4>
-                                    <div class="text-display">{{ ocr_content[page_num].text }}</div>
-                                </div>
-                            </div>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <p>No pages have both extracted text and OCR results for comparison.</p>
-                {% endif %}
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h4>Extracted Text</h4>
+                        <div class="text-display">{{ text_content[page_num].text }}</div>
+                    </div>
+                    <div>
+                        <h4>OCR Result</h4>
+                        <div class="text-display">{{ ocr_content[page_num].text }}</div>
+                    </div>
+                </div>
             </div>
-        </div>
+        {% endfor %}
+    {% else %}
+        <p>No pages have both extracted text and OCR results for comparison.</p>
+    {% endif %}
+</div>
         
         <div class="action-buttons">
             <a href="/view/{{ document.id }}" class="button primary-button">View Document</a>
