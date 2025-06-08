@@ -495,8 +495,9 @@ class DatabaseManager:
                 cursor = conn.cursor()
 
                 if page_number is not None:
+                    # Query for a specific page - include all needed columns
                     cursor.execute("""
-                        SELECT text_content, processed_at
+                        SELECT text_content, ocr_text, processed_at, image_path
                         FROM pdf_text_content
                         WHERE pdf_id = ? AND page_number = ?
                     """, (doc_id, page_number))
@@ -505,15 +506,16 @@ class DatabaseManager:
                     if row:
                         return {
                             'page_number': page_number,
-                            'text': row['text_content'],
+                            'text': row['text_content'] or row['ocr_text'] or '',
                             'processed_at': row['processed_at'],
-                            'image_path': row['image_path']
+                            'image_path': row.get('image_path')  # Use get() to handle if column doesn't exist
                         }
                     return None
 
                 else:
+                    # Query for all pages - include all needed columns
                     cursor.execute("""
-                        SELECT page_number, text_content, processed_at
+                        SELECT page_number, text_content, ocr_text, processed_at, image_path
                         FROM pdf_text_content
                         WHERE pdf_id = ?
                         ORDER BY page_number
@@ -522,9 +524,9 @@ class DatabaseManager:
                     results = {}
                     for row in cursor.fetchall():
                         results[row['page_number']] = {
-                            'text': row['text_content'] or row['ocr_text'],
+                            'text': row['text_content'] or row['ocr_text'] or '',
                             'processed_at': row['processed_at'],
-                            'image_path': row['image_path']
+                            'image_path': row.get('image_path')  # Use get() to handle if column doesn't exist
                         }
                     return results
 
