@@ -44,15 +44,6 @@
             background-color: #fff9c4;
             padding: 0 2px;
         }
-        .confidence-high {
-            background-color: rgba(40, 167, 69, 0.1);
-        }
-        .confidence-medium {
-            background-color: rgba(255, 193, 7, 0.1);
-        }
-        .confidence-low {
-            background-color: rgba(220, 53, 69, 0.1);
-        }
     </style>
 </head>
 <body>
@@ -94,21 +85,15 @@
                 <dt>Indexed:</dt>
                 <dd>{{ document.last_indexed_at }}</dd>
             {% endif %}
-            
-            <dt>Confidence:</dt>
-            <dd>{{ "%.1f"|format(document.confidence_score * 100) }}%</dd>
         </dl>
     </div>
     
     <div class="document-viewer">
         {% if text_content %}
             {% for page_num, page in text_content.items() %}
-                <div class="page-content {% if page.confidence < 0.7 %}confidence-low{% elif page.confidence < 0.9 %}confidence-medium{% else %}confidence-high{% endif %}">
+                <div class="page-content">
                     <div class="page-header">
                         <strong>Page {{ page_num }}</strong>
-                        {% if page.confidence %}
-                            <span class="confidence">(Confidence: {{ "%.1f"|format(page.confidence * 100) }}%)</span>
-        {% endif %}
     </div>
 
                     <div class="page-text" id="page-{{ page_num }}">

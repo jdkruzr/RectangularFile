@@ -109,28 +109,6 @@
             overflow-y: auto;
         }
         
-        .confidence-indicator {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            color: white;
-            font-size: 0.8em;
-            margin-left: 10px;
-        }
-        
-        .confidence-low {
-            background-color: #dc3545;
-        }
-        
-        .confidence-medium {
-            background-color: #ffc107;
-            color: #212529;
-        }
-        
-        .confidence-high {
-            background-color: #28a745;
-        }
-        
         .action-buttons {
             margin-top: 20px;
             display: flex;
@@ -210,18 +188,6 @@
                         <span class="stat-label">Word Count:</span>
                         <span class="stat-value">{{ stats.text_extraction.word_count }}</span>
                     </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Average Confidence:</span>
-                        <span class="stat-value">
-                            {{ "%.1f"|format(stats.text_extraction.avg_confidence) }}%
-                            <span class="confidence-indicator 
-                                {% if stats.text_extraction.avg_confidence < 50 %}confidence-low
-                                {% elif stats.text_extraction.avg_confidence < 80 %}confidence-medium
-                                {% else %}confidence-high
-                                {% endif %}">
-                            </span>
-                        </span>
-                    </div>
                 </div>
                 
                 <div class="stat-section">
@@ -233,18 +199,6 @@
                     <div class="stat-row">
                         <span class="stat-label">Word Count:</span>
                         <span class="stat-value">{{ stats.ocr.word_count }}</span>
-                    </div>
-                    <div class="stat-row">
-                        <span class="stat-label">Average Confidence:</span>
-                        <span class="stat-value">
-                            {{ "%.1f"|format(stats.ocr.avg_confidence) }}%
-                            <span class="confidence-indicator 
-                                {% if stats.ocr.avg_confidence < 50 %}confidence-low
-                                {% elif stats.ocr.avg_confidence < 80 %}confidence-medium
-                                {% else %}confidence-high
-                                {% endif %}">
-                            </span>
-                        </span>
                     </div>
                 </div>
             </div>
@@ -276,15 +230,6 @@
                         <div class="page-content" id="extracted-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
                             <div class="page-header">
                                 <strong>Page {{ page_num }}</strong>
-                                {% if page.confidence %}
-                                    <span class="confidence-indicator 
-                                        {% if page.confidence < 0.5 %}confidence-low
-                                        {% elif page.confidence < 0.8 %}confidence-medium
-                                        {% else %}confidence-high
-                                        {% endif %}">
-                                        Confidence: {{ "%.1f"|format(page.confidence * 100) }}%
-                                    </span>
-                                {% endif %}
                             </div>
                             
                             <div class="text-display">{{ page.text }}</div>
@@ -314,15 +259,6 @@
                         <div class="page-content" id="ocr-page-{{ page_num }}" {% if not loop.first %}style="display: none;"{% endif %}>
                             <div class="page-header">
                                 <strong>Page {{ page_num }}</strong>
-                                {% if page.confidence %}
-                                    <span class="confidence-indicator 
-                                        {% if page.confidence < 0.5 %}confidence-low
-                                        {% elif page.confidence < 0.8 %}confidence-medium
-                                        {% else %}confidence-high
-                                        {% endif %}">
-                                        Confidence: {{ "%.1f"|format(page.confidence * 100) }}%
-                                    </span>
-                                {% endif %}
                             </div>
                             
                             <div class="text-display">{{ page.text }}</div>

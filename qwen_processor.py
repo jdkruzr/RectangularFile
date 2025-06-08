@@ -300,7 +300,7 @@ class QwenVLProcessor:
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
 
-    def _process_image(self, image: Image.Image) -> Tuple[str, float]:
+    def _process_image(self, image: Image.Image) -> str:
         """Process a single image with Qwen2.5-VL using the approach from model_test.py."""
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
@@ -400,7 +400,7 @@ class QwenVLProcessor:
             self.logger.info(text_preview)
             self.logger.info("============================")
 
-            return text, 0.95 if text else 0.0
+            return text
 
         except Exception as e:
             self.logger.error(f"Error processing image: {e}")

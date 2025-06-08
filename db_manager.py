@@ -103,7 +103,6 @@ class DatabaseManager:
             
             has_text_content BOOLEAN DEFAULT FALSE,
             has_images BOOLEAN DEFAULT FALSE,
-            confidence_score FLOAT,
             word_count INTEGER DEFAULT 0,
             language_detected TEXT,
             search_terms TEXT,
@@ -117,10 +116,8 @@ class DatabaseManager:
             pdf_id INTEGER,
             page_number INTEGER,
             text_content TEXT,
-            confidence_score FLOAT,
             processed_at TIMESTAMP,
             ocr_text TEXT,
-            ocr_confidence_score FLOAT,
             PRIMARY KEY (pdf_id, page_number),
             FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
         );
@@ -170,7 +167,7 @@ class DatabaseManager:
         CREATE TABLE IF NOT EXISTS document_topics (
             doc_id INTEGER,
             topic_id INTEGER,
-            confidence_score FLOAT,
+
             assigned_at TIMESTAMP,
             PRIMARY KEY (doc_id, topic_id),
             FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
@@ -364,7 +361,6 @@ class DatabaseManager:
                 
                 # Calculate overall statistics
                 total_words = sum(page['word_count'] for page in page_data.values())
-                avg_confidence = sum(page['confidence'] for page in page_data.values()) / len(page_data) if page_data else 0
                 
                 # Update the main document record
                 cursor.execute("""
@@ -384,19 +380,16 @@ class DatabaseManager:
                             pdf_id,
                             page_number,
                             ocr_text,
-                            ocr_confidence_score,
                             processed_at
-                        ) VALUES (?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?)
                         ON CONFLICT (pdf_id, page_number) 
                         DO UPDATE SET
                             ocr_text = excluded.ocr_text,
-                            ocr_confidence_score = excluded.ocr_confidence_score,
                             processed_at = excluded.processed_at
                     """, (
                         doc_id,
                         page_number,
                         data['text'],
-                        data['confidence'],
                         data['processed_at']
                     ))
                 
@@ -455,24 +448,16 @@ class DatabaseManager:
                 # Calculate overall statistics
                 total_words = sum(page['word_count'] for page in page_data.values())
                 
-                # Debug confidence scores
-                page_confidences = [page['confidence'] for page in page_data.values()]
-                self.logger.info(f"Page confidences for doc {doc_id}: {page_confidences}")
-
-                avg_confidence = sum(page_confidences) / len(page_data) if page_data else 0
-                self.logger.info(f"Average confidence for doc {doc_id}: {avg_confidence}")
-                
                 # Update main document record
                 cursor.execute("""
                     UPDATE pdf_documents
                     SET processing_status = 'completed',
                         word_count = ?,
-                        confidence_score = ?,
                         has_text_content = TRUE,
                         last_indexed_at = ?,
                         processing_progress = 100.0
                     WHERE id = ?
-                """, (total_words, avg_confidence, datetime.now(), doc_id))
+                """, (total_words, datetime.now(), doc_id))
 
                 for page_number, data in page_data.items():
                     cursor.execute("""
@@ -480,19 +465,16 @@ class DatabaseManager:
                             pdf_id,
                             page_number,
                             text_content,
-                            confidence_score,
                             processed_at
-                        ) VALUES (?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?)
                         ON CONFLICT (pdf_id, page_number)
                         DO UPDATE SET
                             text_content = excluded.text_content,
-                            confidence_score = excluded.confidence_score,
                             processed_at = excluded.processed_at
                     """, (
                         doc_id,
                         page_number,
                         data['text'],
-                        data['confidence'],
                         data['processed_at']
                     ))
 
@@ -510,7 +492,7 @@ class DatabaseManager:
 
                 if page_number is not None:
                     cursor.execute("""
-                        SELECT text_content, confidence_score, processed_at
+                        SELECT text_content, processed_at
                         FROM pdf_text_content
                         WHERE pdf_id = ? AND page_number = ?
                     """, (doc_id, page_number))
@@ -520,14 +502,13 @@ class DatabaseManager:
                         return {
                             'page_number': page_number,
                             'text': row['text_content'],
-                            'confidence': row['confidence_score'],
                             'processed_at': row['processed_at']
                         }
                     return None
 
                 else:
                     cursor.execute("""
-                        SELECT page_number, text_content, confidence_score, processed_at
+                        SELECT page_number, text_content, processed_at
                         FROM pdf_text_content
                         WHERE pdf_id = ?
                         ORDER BY page_number
@@ -537,7 +518,6 @@ class DatabaseManager:
                     for row in cursor.fetchall():
                         results[row['page_number']] = {
                             'text': row['text_content'],
-                            'confidence': row['confidence_score'],
                             'processed_at': row['processed_at']
                         }
                     return results
@@ -620,7 +600,7 @@ class DatabaseManager:
                         ocr_last_processed_at, processing_progress,
                         pdf_title, pdf_author, pdf_created_at, pdf_modified_at,
                         pdf_page_count, pdf_version, has_text_content,
-                        has_images, confidence_score, word_count, language_detected
+                        has_images, word_count, language_detected
                     FROM pdf_documents
                     WHERE id = ?
                 """, (doc_id,))
@@ -701,7 +681,6 @@ class DatabaseManager:
                         d.pdf_title,
                         d.pdf_author,
                         d.word_count,
-                        d.confidence_score,
                         GROUP_CONCAT(DISTINCT p.page_number) as page_numbers
                     FROM 
                         pdf_documents d
