@@ -1,20 +1,14 @@
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor, BitsAndBytesConfig
 from qwen_vl_utils import process_vision_info
 
-quantization_config = BitsAndBytesConfig(
+quantization_config_settings = BitsAndBytesConfig(
     load_in_8bit=True,
     llm_int8_threshold=6.0
 )
 
-model_kwargs = {
-    "device_map": "auto",
-    "trust_remote_code": True,
-    "quantization_config": quantization_config
-}
-
 # default: Load the model on the available device(s)
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    "Qwen/Qwen2.5-VL-3B-Instruct", torch_dtype="auto", device_map="auto", **model_kwargs
+    "Qwen/Qwen2.5-VL-3B-Instruct", torch_dtype="auto", device_map="auto", quantization_config=quantization_config_settings
 )
 
 # We recommend enabling flash_attention_2 for better acceleration and memory saving, especially in multi-image and video scenarios.
