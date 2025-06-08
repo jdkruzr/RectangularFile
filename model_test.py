@@ -38,7 +38,7 @@ messages = [
                 "resized_height": 280,
                 "resized_width": 420,
             },
-            {"type": "text", "text": "Describe this image."},
+            {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible."},
         ],
     }
 ]
