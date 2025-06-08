@@ -35,6 +35,8 @@ messages = [
             {
                 "type": "image",
                 "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+                "resized_height": 280,
+                "resized_width": 420,
             },
             {"type": "text", "text": "Describe this image."},
         ],
