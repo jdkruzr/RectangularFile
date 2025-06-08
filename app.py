@@ -289,23 +289,11 @@ def search_page():
 
 @app.route('/view/<int:doc_id>')
 def view_document(doc_id):
-    """View a document with optional text highlighting."""
+    """Redirect to the unified document viewer."""
     highlight = request.args.get('highlight', '')
-    
-    # Get document details
-    document = db.get_document_by_id(doc_id)
-    if not document:
-        return render_template('error.html', message="Document not found"), 404
-        
-    # Get document text content
-    text_content = db.get_document_text(doc_id)
-    
-    return render_template(
-        'view_document.html',
-        document=document,
-        text_content=text_content,
-        highlight=highlight
-    )
+    if highlight:
+        return redirect(url_for('document_viewer', doc_id=doc_id, highlight=highlight))
+    return redirect(url_for('document_viewer', doc_id=doc_id))
 
 @app.route('/document_image/<int:doc_id>/<int:page_num>')
 def document_image(doc_id, page_num):
@@ -330,26 +318,45 @@ def document_image(doc_id, page_num):
 
 @app.route('/files/<int:doc_id>')
 def document_inspector(doc_id):
-    """Document inspector showing detailed document information."""
+    """Redirect to the unified document viewer."""
+    return redirect(url_for('document_viewer', doc_id=doc_id))
+    
+@app.route('/document/<int:doc_id>')
+def document_viewer(doc_id):
+    """Unified document viewer that combines inspection and viewing."""
+    highlight = request.args.get('highlight', '')
+    
+    # Get document details
     document = db.get_document_by_id(doc_id)
     if not document:
         return render_template('error.html', message="Document not found"), 404
-    
-    # Get text extraction content
+        
+    # Get document text content
     text_content = db.get_document_text(doc_id) or {}
     
-    # Get OCR content from text_content (since now get_document_text already returns the best text)
-    ocr_content = {
-        page_num: page_data 
-        for page_num, page_data in text_content.items() 
-        if page_data.get('source') == 'ocr'
-    }
-    
-    # Get extract content separately for comparison
+    # Get OCR and extracted content separately for comparison
+    ocr_content = {}
     extracted_content = {}
+    
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
+            # Get OCR content
+            cursor.execute("""
+                SELECT page_number, ocr_text, processed_at
+                FROM pdf_text_content
+                WHERE pdf_id = ? AND ocr_text IS NOT NULL
+                ORDER BY page_number
+            """, (doc_id,))
+            
+            for row in cursor.fetchall():
+                ocr_content[row['page_number']] = {
+                    'text': row['ocr_text'],
+                    'processed_at': row['processed_at'],
+                    'source': 'ocr'
+                }
+                
+            # Get extracted content
             cursor.execute("""
                 SELECT page_number, text_content, processed_at
                 FROM pdf_text_content
@@ -364,33 +371,23 @@ def document_inspector(doc_id):
                     'source': 'extracted'
                 }
     except Exception as e:
-        print(f"Error fetching extracted content: {e}")
+        print(f"Error fetching content: {e}")
     
     # Pre-compute common pages
     common_pages = sorted(set(extracted_content.keys()) & set(ocr_content.keys()))
-    
-    # Get statistics
-    stats = {
-        'text_extraction': {
-            'page_count': len(extracted_content),
-            'word_count': document.get('word_count', 0)
-        },
-        'ocr': {
-            'page_count': len(ocr_content),
-            'word_count': sum(len(page.get('text', '').split()) for page in ocr_content.values())
-        }
-    }
+    has_comparison = len(common_pages) > 0
     
     return render_template(
-        'document_inspector.html',
+        'document_viewer.html',
         document=document,
         text_content=text_content,
         extracted_content=extracted_content,
         ocr_content=ocr_content,
-        stats=stats,
-        common_pages=common_pages
+        common_pages=common_pages,
+        has_comparison=has_comparison,
+        highlight=highlight
     )
-    
+
 def on_new_file(filename: str):
     """Handle new file detection."""
     global new_files

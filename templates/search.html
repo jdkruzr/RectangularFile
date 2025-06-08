@@ -120,8 +120,8 @@
                         {% endfor %}
                         
                         <div class="result-actions">
-                            <a href="/view/{{ result.doc_id }}" target="_blank">View Document</a>
-                            <a href="/view/{{ result.doc_id }}?highlight={{ query|urlencode }}" target="_blank">View with Highlights</a>
+                            <a href="/document/{{ result.doc_id }}" target="_blank">View Document</a>
+                            <a href="/document/{{ result.doc_id }}?highlight={{ query|urlencode }}" target="_blank">View with Highlights</a>
                         </div>
                     </div>
                 {% endfor %}
