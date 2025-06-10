@@ -1,0 +1,15 @@
+[Unit]
+Description=Rectangular File
+After=network.target
+
+[Service]
+User=sysop
+Group=sysop
+WorkingDirectory=/home/sysop/RectangularFile
+ExecStart=/home/sysop/RectangularFile/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8000 app:app
+Restart=on-failure
+Environment="SECRET_KEY=your-secure-key"
+Environment="ADMIN_PASSWORD=your-secure-password"
+
+[Install]
+WantedBy=multi-user.target
