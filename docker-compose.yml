@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  rectangular-file:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/documents:/mnt/rectangularfile/documents
+      - ./data/debug_images:/mnt/rectangularfile/debug_images
+      - ./data/qwencache:/mnt/rectangularfile/qwencache
+      - ./data/db:/app/db
+    environment:
+      - SECRET_KEY=your-secure-secret-key
+      - ADMIN_PASSWORD=your-secure-password
