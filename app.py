@@ -517,6 +517,41 @@ def folder_browser():
         print(f"Error in folder browser: {e}")
         return render_template('error.html', message=f"Error browsing folders: {str(e)}"), 500
     
+@app.route('/test_db')
+def test_db():
+    """Test database connection and schema."""
+    results = {
+        "database_path": db.db_path,
+        "exists": os.path.exists(db.db_path),
+        "connection_test": False,
+        "tables": [],
+        "document_count": 0,
+        "sample_documents": []
+    }
+    
+    try:
+        with db.get_connection() as conn:
+            results["connection_test"] = True
+            
+            # Check tables
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            results["tables"] = [row[0] for row in cursor.fetchall()]
+            
+            # Check document count
+            if "pdf_documents" in results["tables"]:
+                cursor.execute("SELECT COUNT(*) FROM pdf_documents")
+                results["document_count"] = cursor.fetchone()[0]
+                
+                # Get sample documents
+                cursor.execute("SELECT id, filename, folder_path FROM pdf_documents LIMIT 5")
+                results["sample_documents"] = [dict(row) for row in cursor.fetchall()]
+                
+    except Exception as e:
+        results["error"] = str(e)
+        
+    return jsonify(results)
+
 @app.route('/document/<int:doc_id>')
 def document_viewer(doc_id):
     """Unified document viewer that combines inspection and viewing."""
@@ -631,42 +666,58 @@ def initialize_file_watcher():
 
         # Add all existing files to the database if they're not already there
         try:
-            print(f"Checking existing files for database inclusion...")
+            print(f"Found {len(file_watcher.files)} files to process")
+            print(f"First few files: {file_watcher.files[:5]}")
+            
             files_added = 0
             for rel_path in file_watcher.files:
-                filepath = Path(os.path.join(UPLOAD_FOLDER, rel_path))
-                doc_id = db.add_document(filepath)
-                if doc_id:
-                    print(f"Added document to database: {rel_path} with ID {doc_id}")
-                    files_added += 1
+                try:
+                    filepath = Path(os.path.join(UPLOAD_FOLDER, rel_path))
+                    print(f"Processing file: {filepath}")
                     
-                    # Also queue for processing
-                    if db.get_document_by_id(doc_id).get('processing_status') == 'pending':
-                        print(f"Queuing newly added document: {rel_path}")
-                        pdf_processor.process_document(filepath, doc_id, db)
-                        ocr_queue.add_to_queue(doc_id, filepath)
+                    # Test file existence
+                    if not filepath.exists():
+                        print(f"File does not exist: {filepath}")
+                        continue
+                        
+                    # Try adding to database
+                    doc_id = db.add_document(filepath)
+                    
+                    if doc_id:
+                        print(f"SUCCESS: Added document to database: {rel_path} with ID {doc_id}")
+                        files_added += 1
+                        
+                        # Also queue for processing
+                        doc = db.get_document_by_id(doc_id)
+                        if doc and doc.get('processing_status') == 'pending':
+                            print(f"Queuing newly added document: {rel_path}")
+                            pdf_processor.process_document(filepath, doc_id, db)
+                            ocr_queue.add_to_queue(doc_id, filepath)
+                    else:
+                        print(f"FAILED: Could not add document to database: {rel_path}")
+                        
+                except Exception as file_error:
+                    print(f"Error processing file {rel_path}: {file_error}")
+                    import traceback
+                    print(traceback.format_exc())
             
             print(f"Added {files_added} files to database")
             
-            # Also check for any pending documents already in the database
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, relative_path 
-                    FROM pdf_documents 
-                    WHERE processing_status = 'pending'
-                """)
+            # Verify database contents
+            try:
+                docs = db.get_active_documents()
+                print(f"Database now contains {len(docs)} documents")
+                if docs:
+                    print(f"First few documents: {[doc['filename'] for doc in docs[:5]]}")
+            except Exception as db_error:
+                print(f"Error checking database contents: {db_error}")
+                import traceback
+                print(traceback.format_exc())
                 
-                pending_docs = cursor.fetchall()
-                print(f"Found {len(pending_docs)} pending documents to queue")
-                for doc in pending_docs:
-                    doc_id = doc['id']
-                    filepath = Path(doc['relative_path'])
-                    if filepath.exists():
-                        print(f"Queuing pending document: {filepath.name}")
-                        ocr_queue.add_to_queue(doc_id, filepath)
         except Exception as e:
             print(f"Error processing existing files: {e}")
+            import traceback
+            print(traceback.format_exc())
 
         file_watcher_initialized = True
         print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
