@@ -230,8 +230,8 @@
                     const fileInfo = data.files.find(f => f.filename === fullPath);
 
                     if (fileInfo && fileInfo.id) {
-                        // Now reset using the ID
-                        fetch(`/reset/${fileInfo.id}`)
+                        // Use the full path to reset
+                        fetch(`/reset_file?path=${encodeURIComponent(fullPath)}`)
                             .then(response => response.json())
                             .then(result => {
                                 if (result.success) {

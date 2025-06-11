@@ -172,6 +172,47 @@ def reset_processing(doc_id):
     else:
         return jsonify(success=False, message="Failed to reset status"), 400
 
+@app.route('/reset_file')
+def reset_file():
+    """Reset processing status for a document by its path."""
+    file_path = request.args.get('path')
+    if not file_path:
+        return jsonify(success=False, message="No file path provided"), 400
+        
+    full_path = os.path.join(UPLOAD_FOLDER, file_path)
+    filepath = Path(full_path)
+    
+    if not filepath.exists():
+        return jsonify(success=False, message="File does not exist"), 404
+        
+    # Try to find document in database by filename
+    base_filename = os.path.basename(file_path)
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+        doc = cursor.fetchone()
+        
+    if not doc:
+        # If not found, add it first
+        doc_id = db.add_document(filepath)
+        if not doc_id:
+            return jsonify(success=False, message="Failed to add document to database"), 500
+    else:
+        doc_id = doc['id']
+        
+    # Reset status and process
+    if db.reset_document_status_by_id(doc_id):
+        # Try text extraction first
+        extracted = pdf_processor.process_document(filepath, doc_id, db)
+        
+        # Queue for OCR processing
+        if ocr_queue.add_to_queue(doc_id, filepath):
+            return jsonify(success=True, message=f"Reset and queued document for OCR processing")
+        else:
+            return jsonify(success=False, message="Reset succeeded but queuing failed"), 500
+    else:
+        return jsonify(success=False, message="Failed to reset status"), 400
+    
 @app.route('/ocr_queue')
 def ocr_queue_status():
     """Get the status of the OCR processing queue."""
@@ -192,15 +233,19 @@ def get_files():
         order=order
     )
 
+    # Debug info
+    print(f"File watcher files: {fs_files[:5]}...")  # Print first 5 as sample
+    print(f"Database documents: {[doc['filename'] for doc in db_docs[:5]]}...")  # Print first 5
+
     files_status = []
-    for filename in fs_files:
+    for rel_path in fs_files:
         # Extract just the base filename for comparison
-        base_filename = os.path.basename(filename)
+        base_filename = os.path.basename(rel_path)
         # Extract folder path for display
-        folder_path = os.path.dirname(filename)
+        folder_path = os.path.dirname(rel_path)
         
         file_info = {
-            'filename': filename,  # Full relative path
+            'filename': rel_path,  # Full relative path
             'base_filename': base_filename,  # Just the file name part
             'folder_path': folder_path,      # Just the folder part
             'in_filesystem': True,
@@ -213,12 +258,19 @@ def get_files():
             'id': None
         }
 
+        # Try to find matching document in database
         for doc in db_docs:
-            # Match by base filename and folder path if available
-            if doc['filename'] == base_filename and (
-                not doc.get('folder_path') or 
-                doc.get('folder_path') == folder_path
-            ):
+            doc_filename = doc['filename']
+            doc_folder = doc.get('folder_path', '')
+            
+            # Debug single comparison
+            if base_filename == doc_filename:
+                print(f"Potential match: {base_filename} == {doc_filename}")
+                print(f"Folder comparison: '{folder_path}' vs '{doc_folder}'")
+                
+            # Try different matching strategies
+            if doc_filename == base_filename:
+                # If filenames match, this is likely our document
                 file_info.update({
                     'in_database': True,
                     'processing_status': doc['processing_status'],
@@ -228,6 +280,7 @@ def get_files():
                     'processing_progress': calculate_processing_progress(doc),
                     'id': doc['id']
                 })
+                print(f"Found match: {base_filename} = {doc_filename}, ID: {doc['id']}")
                 break
 
         files_status.append(file_info)
