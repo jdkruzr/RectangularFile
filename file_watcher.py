@@ -5,19 +5,17 @@ from typing import List, Callable, Optional, Dict, Set, Tuple
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 
-# Update the FileWatcher class to support recursive directory scanning
-
 class FileWatcher:
     def __init__(
         self, 
         directory_path: str, 
         file_types: Optional[List[str]] = None,
         polling_interval: float = 60.0,
-        recursive: bool = True  # Add recursive flag
+        recursive: bool = True
     ):
         self.directory_path = os.path.abspath(directory_path)
         self.file_types = file_types or []
-        self.files: List[str] = []  # This will now store relative paths
+        self.files: List[str] = []
         self.file_mtimes: Dict[str, float] = {}
         self.callbacks: List[Callable] = []
         self.removal_callbacks: List[Callable] = []
@@ -26,12 +24,22 @@ class FileWatcher:
         self._running = False
         self._stopped = False
         self.polling_interval = polling_interval
-        self.recursive = recursive  # Store recursive flag
+        self.recursive = recursive
         
         if not os.path.exists(self.directory_path):
             os.makedirs(self.directory_path)
             
         self._load_existing_files()
+    
+    def _is_valid_file_type(self, filename: str) -> bool:
+        """Check if the file has a valid extension."""
+        if filename.startswith('.'):
+            return False
+
+        if not self.file_types:
+            return True
+        
+        return any(filename.lower().endswith(ext.lower()) for ext in self.file_types)
     
     def _load_existing_files(self) -> None:
         """Load existing files, optionally scanning subdirectories."""
@@ -56,10 +64,24 @@ class FileWatcher:
                     self.files.append(filename)
                     self.file_mtimes[filename] = os.path.getmtime(file_path)
     
-    # Update other methods to handle relative paths
+    def register_callback(self, callback: Callable) -> None:
+        self.callbacks.append(callback)
+    
+    def register_removal_callback(self, callback: Callable) -> None:
+        self.removal_callbacks.append(callback)
+    
+    def set_polling_interval(self, interval: float) -> bool:
+        if interval < 1.0:
+            return False
+        self.polling_interval = interval
+        
+        if self._running:
+            self.stop()
+            self.start()
+            
+        return True
     
     def start(self) -> None:
-        """Start watching for file changes."""
         if self._running:
             return
         
@@ -98,7 +120,7 @@ class FileWatcher:
         self._observer.schedule(
             Handler(self), 
             self.directory_path, 
-            recursive=self.recursive  # Use the recursive flag
+            recursive=self.recursive
         )
         
         def run_observer():
@@ -116,7 +138,6 @@ class FileWatcher:
         print(f"File watcher started with polling interval of {self.polling_interval} seconds")
     
     def scan_now(self) -> Tuple[List[str], List[str]]:
-        """Scan for new and removed files."""
         new_files = []
         removed_files = []
         
@@ -178,14 +199,5 @@ class FileWatcher:
             print("Stopping watcher thread...")
             self._thread.join(timeout=3)
 
-        if hasattr(self._observer, '_observers'):
-            for observer in self._observer._observers:
-                try:
-                    observer.stop()
-                    observer.join(timeout=1)
-                except Exception:
-                    pass
-
         print("File watcher stopped.")
         self._stopped = True
-
