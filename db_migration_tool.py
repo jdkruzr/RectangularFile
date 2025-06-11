@@ -5,6 +5,47 @@ import argparse
 import sys
 from schema_manager import SchemaManager
 
+def initialize_version_table(db_path, target_version):
+    """Initialize the version table at a specific version."""
+    import sqlite3
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Check if the version table exists
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='db_version'
+    """)
+    
+    if not cursor.fetchone():
+        # Create version table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE db_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        print("Created db_version table")
+    
+    # Check if the version already exists
+    cursor.execute("SELECT version FROM db_version WHERE version = ?", (target_version,))
+    if cursor.fetchone():
+        print(f"Version {target_version} already exists in the version table")
+    else:
+        # Insert the target version
+        cursor.execute("INSERT INTO db_version (version) VALUES (?)", (target_version,))
+        print(f"Added version {target_version} to the version table")
+    
+    # Show all versions
+    cursor.execute("SELECT version FROM db_version ORDER BY version")
+    versions = [row[0] for row in cursor.fetchall()]
+    print(f"Current versions in db_version table: {versions}")
+    
+    conn.commit()
+    conn.close()
+    print(f"Version table initialized at version {target_version}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Database Migration Tool for RectangularFile",
@@ -28,6 +69,9 @@ Examples:
   
   # View the current database schema
   python db_migration_tool.py schema
+  
+  # Initialize the version table at a specific version
+  python db_migration_tool.py init-version --version 3
 """
     )
     
@@ -59,6 +103,14 @@ Examples:
                               help='Path to the database file')
     schema_parser.add_argument('--table', help='Print schema for a specific table only')
     schema_parser.add_argument('--output', help='Save schema to a file instead of printing to console')
+
+    # Initialize version command
+    init_version_parser = subparsers.add_parser('init-version', 
+                                               help='Initialize the version table at a specific version')
+    init_version_parser.add_argument('--db-path', default='/mnt/rectangularfile/pdf_index.db', 
+                                    help='Path to the database file')
+    init_version_parser.add_argument('--version', type=int, required=True,
+                                    help='Version number to initialize at')
     
     args = parser.parse_args()
     
@@ -311,6 +363,23 @@ Examples:
             
         except Exception as e:
             print(f"Error getting database schema: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
+            
+    elif args.command == 'init-version':
+        # Initialize version table
+        import os
+        
+        if not os.path.exists(args.db_path):
+            print(f"Database file not found: {args.db_path}")
+            return 1
+            
+        try:
+            initialize_version_table(args.db_path, args.version)
+            return 0
+        except Exception as e:
+            print(f"Error initializing version table: {e}")
             import traceback
             traceback.print_exc()
             return 1
