@@ -1,6 +1,6 @@
 from flask import Flask, render_template, jsonify, request
 import os
-from typing import List
+from typing import Dict, List
 from file_watcher import FileWatcher
 from db_manager import DatabaseManager
 from pdf_processor import PDFProcessor
