@@ -75,7 +75,62 @@ class SchemaManager:
                     FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
                 )
             """,
-            # ...other tables...
+            "processing_jobs": """
+                CREATE TABLE IF NOT EXISTS processing_jobs (
+                    id INTEGER PRIMARY KEY,
+                    pdf_id INTEGER,
+                    job_type TEXT,
+                    status TEXT DEFAULT 'pending',
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    error_message TEXT,
+                    FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
+                )
+            """,
+            "pdf_pages": """
+                CREATE TABLE IF NOT EXISTS pdf_pages (
+                    pdf_id INTEGER,
+                    page_number INTEGER,
+                    width_px INTEGER,
+                    height_px INTEGER,
+                    has_images BOOLEAN DEFAULT FALSE,
+                    has_text BOOLEAN DEFAULT FALSE,
+                    rotation_angle INTEGER DEFAULT 0,
+                    PRIMARY KEY (pdf_id, page_number),
+                    FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
+                )
+            """,
+            "document_links": """
+                CREATE TABLE IF NOT EXISTS document_links (
+                    id INTEGER PRIMARY KEY,
+                    source_doc_id INTEGER,
+                    target_doc_id INTEGER,
+                    link_type TEXT,
+                    link_notes TEXT,
+                    created_at TIMESTAMP,
+                    FOREIGN KEY (source_doc_id) REFERENCES pdf_documents(id),
+                    FOREIGN KEY (target_doc_id) REFERENCES pdf_documents(id)
+                )
+            """,
+            "topics": """
+                CREATE TABLE IF NOT EXISTS topics (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT UNIQUE,
+                    parent_topic_id INTEGER NULL,
+                    created_at TIMESTAMP,
+                    FOREIGN KEY (parent_topic_id) REFERENCES topics(id)
+                )
+            """,
+            "document_topics": """
+                CREATE TABLE IF NOT EXISTS document_topics (
+                    doc_id INTEGER,
+                    topic_id INTEGER,
+                    assigned_at TIMESTAMP,
+                    PRIMARY KEY (doc_id, topic_id),
+                    FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
+                    FOREIGN KEY (topic_id) REFERENCES topics(id)
+                )
+            """
         }
     
     def get_indexes(self) -> Dict[str, str]:
@@ -84,7 +139,9 @@ class SchemaManager:
             "idx_pdf_docs_status": "CREATE INDEX IF NOT EXISTS idx_pdf_docs_status ON pdf_documents(processing_status)",
             "idx_pdf_docs_path": "CREATE INDEX IF NOT EXISTS idx_pdf_docs_path ON pdf_documents(relative_path)",
             "idx_pdf_docs_folder": "CREATE INDEX IF NOT EXISTS idx_pdf_docs_folder ON pdf_documents(folder_path)",
-            # ...other indexes...
+            "idx_text_content_pdf": "CREATE INDEX IF NOT EXISTS idx_text_content_pdf ON pdf_text_content(pdf_id)",
+            "idx_doc_topics_doc": "CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id)",
+            "idx_doc_topics_topic": "CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id)"
         }
     
     def get_migrations(self) -> List[Dict]:
