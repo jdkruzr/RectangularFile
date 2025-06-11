@@ -9,12 +9,14 @@ import time
 import signal
 import atexit
 import sys
+import re 
+from datetime import datetime
 from functools import partial
 import multiprocessing
 from qwen_processor import QwenVLProcessor
 from ocr_queue_manager import OCRQueueManager
 import glob
-from flask import send_file
+from flask import send_file, redirect, url_for
 import json
 
 app = Flask(__name__)
@@ -562,6 +564,27 @@ def initialize_file_watcher():
         file_watcher.start()
 
         ocr_queue.start_processing()
+
+        # Queue any pending documents from the database
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, relative_path 
+                    FROM pdf_documents 
+                    WHERE processing_status = 'pending'
+                """)
+                
+                pending_docs = cursor.fetchall()
+                print(f"Found {len(pending_docs)} pending documents to queue")
+                for doc in pending_docs:
+                    doc_id = doc['id']
+                    filepath = Path(doc['relative_path'])
+                    if filepath.exists():
+                        print(f"Queuing pending document: {filepath.name}")
+                        ocr_queue.add_to_queue(doc_id, filepath)
+        except Exception as e:
+            print(f"Error queueing pending documents: {e}")
 
         file_watcher_initialized = True
         print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
