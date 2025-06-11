@@ -6,7 +6,27 @@ import sys
 from schema_manager import SchemaManager
 
 def main():
-    parser = argparse.ArgumentParser(description="Database Migration Tool")
+    parser = argparse.ArgumentParser(
+        description="Database Migration Tool for RectangularFile",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check current database status
+  python db_migration_tool.py status
+
+  # Apply pending migrations
+  python db_migration_tool.py migrate
+
+  # Preview migrations without applying them
+  python db_migration_tool.py migrate --dry-run
+
+  # Initialize a new database
+  python db_migration_tool.py init
+
+  # Preview database initialization
+  python db_migration_tool.py init --dry-run
+"""
+    )
     
     # Commands
     subparsers = parser.add_subparsers(dest='command', help='Command to run')
@@ -31,6 +51,11 @@ def main():
                             help='Show what would be done without making changes')
     
     args = parser.parse_args()
+    
+    # If no command is provided, show help and exit
+    if not args.command:
+        parser.print_help()
+        return 0
     
     # Create schema manager
     schema_manager = SchemaManager(args.db_path)
@@ -97,6 +122,8 @@ def main():
             print(f"Found {len(pending)} pending migrations:")
             for m in pending:
                 print(f"  Version {m['version']}: {m['description']}")
+                if args.dry_run:
+                    print(f"    SQL: {m['sql']}")
                 
             if args.dry_run:
                 print("\nDRY RUN: No changes have been made to the database.")
@@ -146,6 +173,16 @@ def main():
                 print("\nDRY RUN: This command would create a new database with the following tables:")
                 for table_name in schema_manager.get_base_schema().keys():
                     print(f"  - {table_name}")
+                
+                print("\nWith the following indexes:")
+                for index_name in schema_manager.get_indexes().keys():
+                    print(f"  - {index_name}")
+                    
+                print("\nAnd set the database version to the latest migration:")
+                migrations = schema_manager.get_migrations()
+                latest_version = max(m["version"] for m in migrations) if migrations else 0
+                print(f"  - Version {latest_version}")
+                
                 return 0
         
         if args.dry_run:
@@ -158,9 +195,7 @@ def main():
         else:
             print("Failed to initialize database.")
             return 1
-    else:
-        parser.print_help()
-        
+    
     return 0
 
 if __name__ == "__main__":
