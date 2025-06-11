@@ -1,3 +1,4 @@
+# db_manager.py (modified)
 import sqlite3
 import logging
 from datetime import datetime
@@ -6,12 +7,16 @@ from pathlib import Path
 import threading
 import os
 import json
+from schema_manager import SchemaManager  # Import the new schema manager
 
 class DatabaseManager:
     def __init__(self, db_path: str = "pdf_index.db"):
         self.db_path = db_path
         self._local = threading.local()
         self.setup_logging()
+        
+        # Use the schema manager for initialization
+        self.schema_manager = SchemaManager(db_path)
         self.initialize_database()
     
     def setup_logging(self):
@@ -37,187 +42,18 @@ class DatabaseManager:
         return self._local.conn
 
     def initialize_database(self):
-        self.logger.info("Checking database status...")
+        """Initialize the database using the schema manager."""
+        self.logger.info("Initializing database...")
+        success = self.schema_manager.initialize_database()
         
-        database_exists = os.path.exists(self.db_path)
-        if database_exists:
-            self.logger.info(f"Found existing database at {self.db_path}")
+        if success:
+            self.logger.info("Database initialization completed successfully")
         else:
-            self.logger.info(f"No database found at {self.db_path}, will create new database")
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT name FROM sqlite_master
-                    WHERE type='table' AND name='pdf_documents'
-                """)
-                table_exists = cursor.fetchone() is not None
+            self.logger.error("Failed to initialize database")
+            raise RuntimeError("Database initialization failed")
 
-                if table_exists:
-                    cursor.execute("PRAGMA table_info(pdf_documents)")
-                    columns = [column[1] for column in cursor.fetchall()]
-                    migrations_needed = []
-                    
-                    if 'processing_progress' not in columns:
-                        migrations_needed.append('Add processing_progress column')
-                    if 'folder_path' not in columns:
-                        migrations_needed.append('Add folder_path column')
-                    if 'extracted_metadata' not in columns:
-                        migrations_needed.append('Add extracted_metadata column')
-                        
-                    if migrations_needed:
-                        self.logger.info(f"Database needs migrations: {', '.join(migrations_needed)}")
-
-                        if 'processing_progress' not in columns:
-                            self.logger.info("Adding processing_progress column...")
-                            conn.execute("""
-                                ALTER TABLE pdf_documents
-                                ADD COLUMN processing_progress FLOAT DEFAULT 0.0
-                            """)
-                            self.logger.info("Added processing_progress column")
-                            
-                        if 'folder_path' not in columns:
-                            self.logger.info("Adding folder_path column...")
-                            conn.execute("""
-                                ALTER TABLE pdf_documents
-                                ADD COLUMN folder_path TEXT DEFAULT ''
-                            """)
-                            self.logger.info("Added folder_path column")
-                            
-                        if 'extracted_metadata' not in columns:
-                            self.logger.info("Adding extracted_metadata column...")
-                            conn.execute("""
-                                ALTER TABLE pdf_documents
-                                ADD COLUMN extracted_metadata TEXT
-                            """)
-                            self.logger.info("Added extracted_metadata column")
-                    else:
-                        self.logger.info("Database schema is up to date")
-                else:
-                    self.logger.info("Database exists but needs tables created")
-        except sqlite3.Error as e:
-            self.logger.info(f"Error checking database status: {e}")
-            self.logger.info("Will attempt to create schema from scratch")
-
-        schema = """
-        CREATE TABLE IF NOT EXISTS pdf_documents (
-            id INTEGER PRIMARY KEY,
-            filename TEXT NOT NULL,
-            relative_path TEXT NOT NULL,
-            folder_path TEXT DEFAULT '',
-            file_size_bytes INTEGER,
-            file_created_at TIMESTAMP,
-            file_modified_at TIMESTAMP,
-            file_hash TEXT,
-            
-            first_indexed_at TIMESTAMP,
-            last_indexed_at TIMESTAMP,
-            ocr_processed BOOLEAN DEFAULT FALSE,
-            ocr_last_processed_at TIMESTAMP,
-            processing_status TEXT DEFAULT 'pending',
-            processing_error TEXT,
-            processing_progress FLOAT DEFAULT 0.0,
-            
-            pdf_title TEXT,
-            pdf_author TEXT,
-            pdf_created_at TIMESTAMP,
-            pdf_modified_at TIMESTAMP,
-            pdf_page_count INTEGER,
-            pdf_version TEXT,
-            
-            has_text_content BOOLEAN DEFAULT FALSE,
-            has_images BOOLEAN DEFAULT FALSE,
-            word_count INTEGER DEFAULT 0,
-            language_detected TEXT,
-            search_terms TEXT,
-            last_accessed_at TIMESTAMP,
-            access_count INTEGER DEFAULT 0,
-            extracted_metadata TEXT,
-            
-            UNIQUE(relative_path)
-        );
-
-        CREATE TABLE IF NOT EXISTS pdf_text_content (
-            pdf_id INTEGER,
-            page_number INTEGER,
-            text_content TEXT,
-            processed_at TIMESTAMP,
-            ocr_text TEXT,
-            image_path TEXT,
-            PRIMARY KEY (pdf_id, page_number),
-            FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS processing_jobs (
-            id INTEGER PRIMARY KEY,
-            pdf_id INTEGER,
-            job_type TEXT,
-            status TEXT DEFAULT 'pending',
-            started_at TIMESTAMP,
-            completed_at TIMESTAMP,
-            error_message TEXT,
-            FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS pdf_pages (
-            pdf_id INTEGER,
-            page_number INTEGER,
-            width_px INTEGER,
-            height_px INTEGER,
-            has_images BOOLEAN DEFAULT FALSE,
-            has_text BOOLEAN DEFAULT FALSE,
-            rotation_angle INTEGER DEFAULT 0,
-            PRIMARY KEY (pdf_id, page_number),
-            FOREIGN KEY (pdf_id) REFERENCES pdf_documents(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS document_links (
-            id INTEGER PRIMARY KEY,
-            source_doc_id INTEGER,
-            target_doc_id INTEGER,
-            link_type TEXT,
-            link_notes TEXT,
-            created_at TIMESTAMP,
-            FOREIGN KEY (source_doc_id) REFERENCES pdf_documents(id),
-            FOREIGN KEY (target_doc_id) REFERENCES pdf_documents(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS topics (
-            id INTEGER PRIMARY KEY,
-            name TEXT UNIQUE,
-            parent_topic_id INTEGER NULL,
-            created_at TIMESTAMP,
-            FOREIGN KEY (parent_topic_id) REFERENCES topics(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS document_topics (
-            doc_id INTEGER,
-            topic_id INTEGER,
-            assigned_at TIMESTAMP,
-            PRIMARY KEY (doc_id, topic_id),
-            FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
-            FOREIGN KEY (topic_id) REFERENCES topics(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_pdf_docs_status ON pdf_documents(processing_status);
-        CREATE INDEX IF NOT EXISTS idx_pdf_docs_path ON pdf_documents(relative_path);
-        CREATE INDEX IF NOT EXISTS idx_pdf_docs_folder ON pdf_documents(folder_path);
-        CREATE INDEX IF NOT EXISTS idx_text_content_pdf ON pdf_text_content(pdf_id);
-        CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id);
-        CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id);
-        """
-        
-        try:
-            with self.get_connection() as conn:
-                conn.executescript(schema)
-                if not database_exists:
-                    self.logger.info("New database created successfully")
-                else:
-                    self.logger.info("Database schema verification complete")
-        except sqlite3.Error as e:
-            self.logger.error(f"Error managing database schema: {e}")
-            raise
-
+    # The rest of the DatabaseManager methods remain the same...
+    # (add_document, mark_document_removed, update_processing_progress, etc.)
     def add_document(self, filepath: Path) -> Optional[int]:
         """Add a new PDF document to the database or resurrect if marked as removed."""
         try:
@@ -951,7 +787,6 @@ class DatabaseManager:
                         LOWER(p.ocr_text) LIKE ? OR 
                         LOWER(d.extracted_metadata) LIKE ?
                     )""")
-# ... continuing from previous code
 
                     params.append(f"%{keyword}%")
                     params.append(f"%{keyword}%")
