@@ -25,6 +25,9 @@ Examples:
 
   # Preview database initialization
   python db_migration_tool.py init --dry-run
+  
+  # View the current database schema
+  python db_migration_tool.py schema
 """
     )
     
@@ -49,6 +52,13 @@ Examples:
                             help='Path to the database file')
     init_parser.add_argument('--dry-run', action='store_true',
                             help='Show what would be done without making changes')
+                            
+    # Schema command
+    schema_parser = subparsers.add_parser('schema', help='Print the current database schema')
+    schema_parser.add_argument('--db-path', default='/mnt/rectangularfile/pdf_index.db', 
+                              help='Path to the database file')
+    schema_parser.add_argument('--table', help='Print schema for a specific table only')
+    schema_parser.add_argument('--output', help='Save schema to a file instead of printing to console')
     
     args = parser.parse_args()
     
@@ -194,6 +204,115 @@ Examples:
             print(f"Database initialized successfully: {args.db_path}")
         else:
             print("Failed to initialize database.")
+            return 1
+            
+    elif args.command == 'schema':
+        # Print the database schema
+        import sqlite3
+        import os
+        import textwrap
+        
+        if not os.path.exists(args.db_path):
+            print(f"Database file not found: {args.db_path}")
+            return 1
+            
+        try:
+            conn = sqlite3.connect(args.db_path)
+            cursor = conn.cursor()
+            
+            # Get list of tables
+            if args.table:
+                tables = [args.table]
+                # Check if table exists
+                cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name=?", (args.table,))
+                if not cursor.fetchone():
+                    print(f"Table '{args.table}' not found in database.")
+                    return 1
+            else:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+                tables = [row[0] for row in cursor.fetchall()]
+                if not tables:
+                    print("No tables found in database.")
+                    return 0
+            
+            # Prepare output
+            output_lines = []
+            output_lines.append(f"Database: {args.db_path}")
+            output_lines.append(f"Tables: {len(tables)}")
+            output_lines.append("")
+            
+            # Get schema for each table
+            for table in tables:
+                output_lines.append(f"Table: {table}")
+                output_lines.append("-" * (len(table) + 7))
+                
+                # Get CREATE TABLE statement
+                cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,))
+                create_stmt = cursor.fetchone()[0]
+                
+                # Format the SQL statement for better readability
+                formatted_sql = textwrap.indent(create_stmt, '  ')
+                output_lines.append(formatted_sql)
+                
+                # Get table columns and types
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = cursor.fetchall()
+                
+                output_lines.append("\nColumns:")
+                for col in columns:
+                    col_id, name, type_name, not_null, default_val, pk = col
+                    constraints = []
+                    if pk:
+                        constraints.append("PRIMARY KEY")
+                    if not_null:
+                        constraints.append("NOT NULL")
+                    if default_val is not None:
+                        constraints.append(f"DEFAULT {default_val}")
+                        
+                    constraint_str = f" ({', '.join(constraints)})" if constraints else ""
+                    output_lines.append(f"  {name}: {type_name}{constraint_str}")
+                
+                # Get indexes for this table
+                cursor.execute(f"SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND name NOT LIKE 'sqlite_%'", (table,))
+                indexes = cursor.fetchall()
+                
+                if indexes:
+                    output_lines.append("\nIndexes:")
+                    for idx_name, idx_sql in indexes:
+                        output_lines.append(f"  {idx_name}: {idx_sql}")
+                
+                # Get foreign keys
+                cursor.execute(f"PRAGMA foreign_key_list({table})")
+                foreign_keys = cursor.fetchall()
+                
+                if foreign_keys:
+                    output_lines.append("\nForeign Keys:")
+                    for fk in foreign_keys:
+                        fk_id, seq, ref_table, from_col, to_col, on_update, on_delete, match = fk
+                        output_lines.append(f"  {from_col} -> {ref_table}({to_col})")
+                        if on_update != "NO ACTION":
+                            output_lines.append(f"    ON UPDATE: {on_update}")
+                        if on_delete != "NO ACTION":
+                            output_lines.append(f"    ON DELETE: {on_delete}")
+                
+                output_lines.append("\n")
+            
+            # Output the schema information
+            schema_text = "\n".join(output_lines)
+            
+            if args.output:
+                with open(args.output, 'w') as f:
+                    f.write(schema_text)
+                print(f"Schema saved to {args.output}")
+            else:
+                print(schema_text)
+                
+            conn.close()
+            
+        except Exception as e:
+            print(f"Error getting database schema: {e}")
+            import traceback
+            traceback.print_exc()
             return 1
     
     return 0
