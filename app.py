@@ -19,10 +19,10 @@ import json
 
 app = Flask(__name__)
 
-UPLOAD_FOLDER = "/mnt/rectangularfile/documents"
+UPLOAD_FOLDER = "/mnt/onyx"
 DEFAULT_POLLING_INTERVAL = 30.0
 file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTERVAL)
-db = DatabaseManager("pdf_index.db")
+db = DatabaseManager("/mnt/rectangularfile/pdf_index.db")
 pdf_processor = PDFProcessor()
 ocr_processor = QwenVLProcessor()
 ocr_queue = OCRQueueManager(db, ocr_processor)
