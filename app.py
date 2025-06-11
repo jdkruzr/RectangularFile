@@ -629,8 +629,26 @@ def initialize_file_watcher():
 
         ocr_queue.start_processing()
 
-        # Queue any pending documents from the database
+        # Add all existing files to the database if they're not already there
         try:
+            print(f"Checking existing files for database inclusion...")
+            files_added = 0
+            for rel_path in file_watcher.files:
+                filepath = Path(os.path.join(UPLOAD_FOLDER, rel_path))
+                doc_id = db.add_document(filepath)
+                if doc_id:
+                    print(f"Added document to database: {rel_path} with ID {doc_id}")
+                    files_added += 1
+                    
+                    # Also queue for processing
+                    if db.get_document_by_id(doc_id).get('processing_status') == 'pending':
+                        print(f"Queuing newly added document: {rel_path}")
+                        pdf_processor.process_document(filepath, doc_id, db)
+                        ocr_queue.add_to_queue(doc_id, filepath)
+            
+            print(f"Added {files_added} files to database")
+            
+            # Also check for any pending documents already in the database
             with db.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -648,7 +666,7 @@ def initialize_file_watcher():
                         print(f"Queuing pending document: {filepath.name}")
                         ocr_queue.add_to_queue(doc_id, filepath)
         except Exception as e:
-            print(f"Error queueing pending documents: {e}")
+            print(f"Error processing existing files: {e}")
 
         file_watcher_initialized = True
         print(f"File watcher started with polling interval of {file_watcher.polling_interval} seconds")
