@@ -15,6 +15,7 @@ from qwen_processor import QwenVLProcessor
 from ocr_queue_manager import OCRQueueManager
 import glob
 from flask import send_file
+import json
 
 app = Flask(__name__)
 
@@ -31,6 +32,32 @@ removed_files: List[str] = []
 
 file_watcher_initialized = False
 _cleanup_done = False
+
+def extract_filename_metadata(filename: str) -> Dict[str, str]:
+    """
+    Extract useful metadata from filename patterns.
+    For example: 20250514_Meeting_Name.pdf -> {'date': '2025-05-14', 'title': 'Meeting Name'}
+    """
+    metadata = {}
+    
+    # Extract date if filename starts with a date pattern (YYYYMMDD)
+    date_match = re.match(r'^(\d{4})(\d{2})(\d{2})[ _-]?(.*)', filename)
+    if date_match:
+        year, month, day, remaining = date_match.groups()
+        try:
+            # Validate the date
+            datetime.date(int(year), int(month), int(day))
+            metadata['date'] = f"{year}-{month}-{day}"
+            # Use the remaining part for title
+            metadata['title'] = remaining.replace('_', ' ').replace('-', ' ')
+        except ValueError:
+            # If date is invalid, just use the whole filename
+            metadata['title'] = filename.replace('.pdf', '')
+    else:
+        # No date pattern, just use the filename without extension
+        metadata['title'] = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ')
+    
+    return metadata
 
 def calculate_processing_progress(doc: dict) -> float:
     """Calculate the processing progress percentage for a document."""
@@ -93,6 +120,16 @@ atexit.register(cleanup)
 signal.signal(signal.SIGINT, partial(signal_handler, signum=signal.SIGINT))
 signal.signal(signal.SIGTERM, partial(signal_handler, signum=signal.SIGTERM))
 
+@app.template_filter('from_json')
+def from_json(value):
+    """Parse JSON string into Python object for templates."""
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    
 @app.route('/')
 def index():
     """Render the main page."""

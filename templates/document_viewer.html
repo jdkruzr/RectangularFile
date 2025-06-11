@@ -227,6 +227,22 @@
                     <span class="metadata-label">Status:</span>
                     <span class="metadata-value">{{ document.processing_status|capitalize }}</span>
                 </div>
+
+                {% if document.extracted_metadata %}
+                    {% set metadata = document.extracted_metadata|from_json %}
+                    {% if metadata.date %}
+                        <div class="metadata-item">
+                            <span class="metadata-label">Date:</span>
+                            <span class="metadata-value">{{ metadata.date }}</span>
+                        </div>
+                    {% endif %}
+                    {% if metadata.title %}
+                        <div class="metadata-item">
+                            <span class="metadata-label">Title:</span>
+                            <span class="metadata-value">{{ metadata.title }}</span>
+                        </div>
+                    {% endif %}
+                {% endif %}
                 {% endif %}
             </div>
         </div>

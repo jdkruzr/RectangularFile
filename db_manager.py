@@ -5,6 +5,7 @@ from typing import Optional, List, Dict
 from pathlib import Path
 import threading
 import os
+import json
 
 class DatabaseManager:
     def __init__(self, db_path: str = "pdf_index.db"):
@@ -56,8 +57,14 @@ class DatabaseManager:
                     cursor.execute("PRAGMA table_info(pdf_documents)")
                     columns = [column[1] for column in cursor.fetchall()]
                     migrations_needed = []
+                    
                     if 'processing_progress' not in columns:
                         migrations_needed.append('Add processing_progress column')
+                    if 'folder_path' not in columns:
+                        migrations_needed.append('Add folder_path column')
+                    if 'extracted_metadata' not in columns:
+                        migrations_needed.append('Add extracted_metadata column')
+                        
                     if migrations_needed:
                         self.logger.info(f"Database needs migrations: {', '.join(migrations_needed)}")
 
@@ -68,6 +75,22 @@ class DatabaseManager:
                                 ADD COLUMN processing_progress FLOAT DEFAULT 0.0
                             """)
                             self.logger.info("Added processing_progress column")
+                            
+                        if 'folder_path' not in columns:
+                            self.logger.info("Adding folder_path column...")
+                            conn.execute("""
+                                ALTER TABLE pdf_documents
+                                ADD COLUMN folder_path TEXT DEFAULT ''
+                            """)
+                            self.logger.info("Added folder_path column")
+                            
+                        if 'extracted_metadata' not in columns:
+                            self.logger.info("Adding extracted_metadata column...")
+                            conn.execute("""
+                                ALTER TABLE pdf_documents
+                                ADD COLUMN extracted_metadata TEXT
+                            """)
+                            self.logger.info("Added extracted_metadata column")
                     else:
                         self.logger.info("Database schema is up to date")
                 else:
@@ -109,6 +132,7 @@ class DatabaseManager:
             search_terms TEXT,
             last_accessed_at TIMESTAMP,
             access_count INTEGER DEFAULT 0,
+            extracted_metadata TEXT,
             
             UNIQUE(relative_path)
         );
@@ -169,7 +193,6 @@ class DatabaseManager:
         CREATE TABLE IF NOT EXISTS document_topics (
             doc_id INTEGER,
             topic_id INTEGER,
-
             assigned_at TIMESTAMP,
             PRIMARY KEY (doc_id, topic_id),
             FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
@@ -178,11 +201,10 @@ class DatabaseManager:
 
         CREATE INDEX IF NOT EXISTS idx_pdf_docs_status ON pdf_documents(processing_status);
         CREATE INDEX IF NOT EXISTS idx_pdf_docs_path ON pdf_documents(relative_path);
+        CREATE INDEX IF NOT EXISTS idx_pdf_docs_folder ON pdf_documents(folder_path);
         CREATE INDEX IF NOT EXISTS idx_text_content_pdf ON pdf_text_content(pdf_id);
         CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id);
         CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id);
-        CREATE INDEX IF NOT EXISTS idx_pdf_docs_folder ON pdf_documents(folder_path);
-
         """
         
         try:
@@ -216,6 +238,40 @@ class DatabaseManager:
             except (ImportError, ValueError):
                 folder_path = ""
                 
+            # Extract metadata from filename
+            import re
+            
+            def extract_filename_metadata(filename: str) -> Dict[str, str]:
+                """
+                Extract useful metadata from filename patterns.
+                For example: 20250514_Meeting_Name.pdf -> {'date': '2025-05-14', 'title': 'Meeting Name'}
+                """
+                metadata = {}
+                
+                # Extract date if filename starts with a date pattern (YYYYMMDD)
+                date_match = re.match(r'^(\d{4})(\d{2})(\d{2})[ _-]?(.*)', filename)
+                if date_match:
+                    year, month, day, remaining = date_match.groups()
+                    try:
+                        # Validate the date
+                        datetime(int(year), int(month), int(day))
+                        metadata['date'] = f"{year}-{month}-{day}"
+                        # Use the remaining part for title
+                        remaining = os.path.splitext(remaining)[0]  # Remove extension
+                        metadata['title'] = remaining.replace('_', ' ').replace('-', ' ').strip()
+                    except ValueError:
+                        # If date is invalid, just use the whole filename
+                        metadata['title'] = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ').strip()
+                else:
+                    # No date pattern, just use the filename without extension
+                    metadata['title'] = os.path.splitext(filename)[0].replace('_', ' ').replace('-', ' ').strip()
+                
+                return metadata
+                
+            # Extract and store filename metadata
+            filename_metadata = extract_filename_metadata(filename)
+            metadata_json = json.dumps(filename_metadata)
+            
             file_stats = filepath.stat()
             
             with self.get_connection() as conn:
@@ -237,13 +293,15 @@ class DatabaseManager:
                             file_size_bytes = ?,
                             file_modified_at = ?,
                             last_indexed_at = ?,
-                            folder_path = ?
+                            folder_path = ?,
+                            extracted_metadata = ?
                         WHERE id = ?
                     """, (
                         file_stats.st_size,
                         datetime.fromtimestamp(file_stats.st_mtime),
                         datetime.now(),
                         folder_path,
+                        metadata_json,
                         existing['id']
                     ))
                     self.logger.info(f"Resurrected document {filepath.name} with ID {existing['id']}")
@@ -260,18 +318,20 @@ class DatabaseManager:
                         file_modified_at,
                         first_indexed_at,
                         last_indexed_at,
-                        processing_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        processing_status,
+                        extracted_metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     filename,
-                    absolute_path,
+                    absolute_path,  # Store absolute path instead of relative path
                     folder_path,
                     file_stats.st_size,
                     datetime.fromtimestamp(file_stats.st_ctime),
                     datetime.fromtimestamp(file_stats.st_mtime),
                     datetime.now(),
                     datetime.now(),
-                    'pending'
+                    'pending',
+                    metadata_json
                 ))
                 doc_id = cursor.lastrowid
                 self.logger.info(f"Added document {filepath.name} with ID {doc_id}")
@@ -379,6 +439,34 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Get document metadata
+                cursor.execute("""
+                    SELECT filename, extracted_metadata 
+                    FROM pdf_documents 
+                    WHERE id = ?
+                """, (doc_id,))
+                
+                doc_info = cursor.fetchone()
+                if not doc_info:
+                    self.logger.error(f"Document {doc_id} not found")
+                    return False
+                    
+                filename = doc_info['filename']
+                metadata_json = doc_info['extracted_metadata']
+                
+                try:
+                    metadata = json.loads(metadata_json) if metadata_json else {}
+                except json.JSONDecodeError:
+                    metadata = {}
+                
+                # Create a metadata header to append to the OCR text
+                metadata_header = f"Document: {filename}\n"
+                if 'date' in metadata:
+                    metadata_header += f"Date: {metadata['date']}\n"
+                if 'title' in metadata:
+                    metadata_header += f"Title: {metadata['title']}\n"
+                metadata_header += "\n---\n\n"
+                
                 # Calculate overall statistics
                 total_words = sum(page['word_count'] for page in page_data.values())
                 
@@ -393,8 +481,14 @@ class DatabaseManager:
                     WHERE id = ?
                 """, (datetime.now(), datetime.now(), doc_id))
                 
-                # Store individual page data - FIX THE SYNTAX ERROR HERE
+                # Store individual page data - append metadata to first page
                 for page_number, data in page_data.items():
+                    text = data['text']
+                    
+                    # Add metadata header to first page only
+                    if page_number == 1:
+                        text = metadata_header + text
+                    
                     cursor.execute("""
                         INSERT INTO pdf_text_content (
                             pdf_id,
@@ -411,7 +505,7 @@ class DatabaseManager:
                     """, (
                         doc_id,
                         page_number,
-                        data['text'],
+                        text,
                         data['processed_at'],
                         data.get('image_path', None)
                     ))
@@ -449,7 +543,7 @@ class DatabaseManager:
                 query = f"""
                     SELECT id, filename, relative_path, processing_status,
                            last_indexed_at, ocr_processed, processing_progress,
-                           file_size_bytes
+                           file_size_bytes, folder_path, extracted_metadata
                     FROM pdf_documents
                     WHERE {' AND '.join(where_clauses)}
                     ORDER BY {sort_by} {order}
@@ -514,7 +608,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
 
                 if page_number is not None:
-                    # Query for a specific page
+                    # Query for a specific page - include all needed columns
                     cursor.execute("""
                         SELECT text_content, ocr_text, processed_at, image_path
                         FROM pdf_text_content
@@ -525,6 +619,9 @@ class DatabaseManager:
                     if row:
                         # Choose the best text content available
                         text = self._choose_best_text_content(row)
+                        
+                        # Determine the source
+                        source = 'ocr' if row['ocr_text'] and row['ocr_text'].strip() else 'extracted'
                         
                         # Safely access image_path
                         try:
@@ -537,12 +634,12 @@ class DatabaseManager:
                             'text': text,
                             'processed_at': row['processed_at'],
                             'image_path': image_path,
-                            'source': 'ocr' if row['ocr_text'] and row['ocr_text'].strip() else 'extracted'
+                            'source': source
                         }
                     return None
 
                 else:
-                    # Query for all pages
+                    # Query for all pages - include all needed columns
                     cursor.execute("""
                         SELECT page_number, text_content, ocr_text, processed_at, image_path
                         FROM pdf_text_content
@@ -555,6 +652,9 @@ class DatabaseManager:
                         # Choose the best text content available
                         text = self._choose_best_text_content(row)
                         
+                        # Determine the source
+                        source = 'ocr' if row['ocr_text'] and row['ocr_text'].strip() else 'extracted'
+                        
                         # Safely access image_path
                         try:
                             image_path = row['image_path']
@@ -565,14 +665,14 @@ class DatabaseManager:
                             'text': text,
                             'processed_at': row['processed_at'],
                             'image_path': image_path,
-                            'source': 'ocr' if row['ocr_text'] and row['ocr_text'].strip() else 'extracted'
+                            'source': source
                         }
                     return results
 
         except sqlite3.Error as e:
             self.logger.error(f"Error retrieving text for document {doc_id}: {e}")
             return None
-        
+
     def _choose_best_text_content(self, row) -> str:
         """
         Choose the best text content from a database row.
@@ -680,7 +780,8 @@ class DatabaseManager:
                         ocr_last_processed_at, processing_progress,
                         pdf_title, pdf_author, pdf_created_at, pdf_modified_at,
                         pdf_page_count, pdf_version, has_text_content,
-                        has_images, word_count, language_detected
+                        has_images, word_count, language_detected,
+                        folder_path, extracted_metadata
                     FROM pdf_documents
                     WHERE id = ?
                 """, (doc_id,))
@@ -746,8 +847,15 @@ class DatabaseManager:
                 params = []
                 
                 for keyword in keywords:
-                    # Search in both text_content (PDFMiner) and ocr_text (Qwen)
-                    like_clauses.append("(LOWER(p.text_content) LIKE ? OR LOWER(p.ocr_text) LIKE ?)")
+                    # Search in text_content, ocr_text, and extracted_metadata
+                    like_clauses.append("""(
+                        LOWER(p.text_content) LIKE ? OR 
+                        LOWER(p.ocr_text) LIKE ? OR 
+                        LOWER(d.extracted_metadata) LIKE ?
+                    )""")
+# ... continuing from previous code
+
+                    params.append(f"%{keyword}%")
                     params.append(f"%{keyword}%")
                     params.append(f"%{keyword}%")
                 
@@ -761,6 +869,8 @@ class DatabaseManager:
                         d.pdf_title,
                         d.pdf_author,
                         d.word_count,
+                        d.folder_path,
+                        d.extracted_metadata,
                         GROUP_CONCAT(DISTINCT p.page_number) as page_numbers
                     FROM 
                         pdf_documents d
@@ -941,6 +1051,3 @@ class DatabaseManager:
                 self.logger.info("Database connection closed")
             except sqlite3.Error as e:
                 self.logger.error(f"Error closing database connection: {e}")
-
-
-
