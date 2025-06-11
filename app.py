@@ -320,6 +320,73 @@ def document_image(doc_id, page_num):
 def document_inspector(doc_id):
     """Redirect to the unified document viewer."""
     return redirect(url_for('document_viewer', doc_id=doc_id))
+
+@app.route('/folders')
+def folder_browser():
+    """Browse documents by folder structure."""
+    folder = request.args.get('path', '')
+    
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all unique folders
+            cursor.execute("""
+                SELECT DISTINCT folder_path 
+                FROM pdf_documents 
+                WHERE processing_status != 'removed'
+                ORDER BY folder_path
+            """)
+            
+            all_folders = [row['folder_path'] for row in cursor.fetchall()]
+            
+            # Get files in the current folder
+            if folder:
+                # Exact folder match
+                cursor.execute("""
+                    SELECT id, filename, relative_path, folder_path, 
+                           processing_status, last_indexed_at, ocr_processed
+                    FROM pdf_documents
+                    WHERE folder_path = ? AND processing_status != 'removed'
+                    ORDER BY filename
+                """, (folder,))
+            else:
+                # Root folder
+                cursor.execute("""
+                    SELECT id, filename, relative_path, folder_path, 
+                           processing_status, last_indexed_at, ocr_processed
+                    FROM pdf_documents
+                    WHERE (folder_path = '' OR folder_path IS NULL) AND processing_status != 'removed'
+                    ORDER BY filename
+                """)
+                
+            files = [dict(row) for row in cursor.fetchall()]
+            
+            # Build folder tree
+            folder_tree = {}
+            for path in all_folders:
+                if not path:  # Skip empty paths
+                    continue
+                    
+                parts = path.split('/')
+                current = folder_tree
+                
+                for i, part in enumerate(parts):
+                    if part not in current:
+                        current[part] = {}
+                    current = current[part]
+            
+            return render_template(
+                'folder_browser.html',
+                current_folder=folder,
+                files=files,
+                folder_tree=folder_tree,
+                all_folders=all_folders
+            )
+            
+    except Exception as e:
+        print(f"Error in folder browser: {e}")
+        return render_template('error.html', message=f"Error browsing folders: {str(e)}"), 500
     
 @app.route('/document/<int:doc_id>')
 def document_viewer(doc_id):
@@ -388,13 +455,13 @@ def document_viewer(doc_id):
         highlight=highlight
     )
 
-def on_new_file(filename: str):
+def on_new_file(rel_path: str):
     """Handle new file detection."""
     global new_files
-    new_files.append(filename)
-    print(f"New file detected: {filename} at {time.strftime('%H:%M:%S')}")
+    new_files.append(rel_path)
+    print(f"New file detected: {rel_path} at {time.strftime('%H:%M:%S')}")
 
-    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+    filepath = Path(os.path.join(UPLOAD_FOLDER, rel_path))
     doc_id = db.add_document(filepath)
     if doc_id:
         print(f"Added document to database with ID: {doc_id}")
@@ -403,23 +470,23 @@ def on_new_file(filename: str):
         extracted = pdf_processor.process_document(filepath, doc_id, db)
         
         # Queue the document for OCR processing instead of doing it immediately
-        print(f"Queuing {filename} for OCR processing")
+        print(f"Queuing {rel_path} for OCR processing")
         if ocr_queue.add_to_queue(doc_id, filepath):
-            print(f"Document {filename} queued for OCR processing")
+            print(f"Document {rel_path} queued for OCR processing")
         else:
-            print(f"Failed to queue document {filename} for OCR processing")
+            print(f"Failed to queue document {rel_path} for OCR processing")
             
-def on_file_removed(filename: str):
+def on_file_removed(rel_path: str):
     """Handle file removal."""
     global removed_files
-    removed_files.append(filename)
-    print(f"File removed: {filename} at {time.strftime('%H:%M:%S')}")
+    removed_files.append(rel_path)
+    print(f"File removed: {rel_path} at {time.strftime('%H:%M:%S')}")
 
-    filepath = Path(os.path.join(UPLOAD_FOLDER, filename))
+    filepath = Path(os.path.join(UPLOAD_FOLDER, rel_path))
     if db.mark_document_removed(filepath):
-        print(f"Marked document as removed in database: {filename}")
+        print(f"Marked document as removed in database: {rel_path}")
     else:
-        print(f"Failed to mark document as removed in database: {filename}")
+        print(f"Failed to mark document as removed in database: {rel_path}")
 
 @app.before_request
 def initialize_file_watcher():

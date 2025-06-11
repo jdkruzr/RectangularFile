@@ -43,16 +43,28 @@
 
     <script>
         function createFileCard(file) {
-                        const li = document.createElement('li');
-                        const fileItem = document.createElement('div');
-                        fileItem.className = 'file-item';
-                        
-                        // File name
-                        const fileName = document.createElement('div');
-                        fileName.className = 'file-name';
-                        fileName.textContent = file.filename;
-                        fileItem.appendChild(fileName);
-                        
+            const li = document.createElement('li');
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            
+            // File name with folder path
+            const fileName = document.createElement('div');
+            fileName.className = 'file-name';
+            
+            // Show folder structure if available
+            if (file.folder_path && file.folder_path !== '') {
+                const folderSpan = document.createElement('span');
+                folderSpan.className = 'folder-path';
+                folderSpan.textContent = file.folder_path + '/';
+                fileName.appendChild(folderSpan);
+            }
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = file.filename;
+            fileName.appendChild(nameSpan);
+            
+            fileItem.appendChild(fileName);         
+
                         // File actions section
                         const fileActions = document.createElement('div');
                         fileActions.className = 'file-actions';
@@ -289,5 +301,12 @@
                 });
         }, 3000);
     </script>
+
+    <style>
+    .folder-path {
+        color: #6c757d;
+        font-size: 0.9em;
+    }
+    </style>
 </body>
 </html>

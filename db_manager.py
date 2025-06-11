@@ -81,6 +81,7 @@ class DatabaseManager:
             id INTEGER PRIMARY KEY,
             filename TEXT NOT NULL,
             relative_path TEXT NOT NULL,
+            folder_path TEXT DEFAULT '',
             file_size_bytes INTEGER,
             file_created_at TIMESTAMP,
             file_modified_at TIMESTAMP,
@@ -180,6 +181,7 @@ class DatabaseManager:
         CREATE INDEX IF NOT EXISTS idx_text_content_pdf ON pdf_text_content(pdf_id);
         CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id);
         CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id);
+        CREATE INDEX IF NOT EXISTS idx_pdf_docs_folder ON pdf_documents(folder_path);
 
         """
         
@@ -201,6 +203,19 @@ class DatabaseManager:
             # This will work regardless of where the file is located
             absolute_path = str(filepath.absolute())
             filename = filepath.name
+            
+            # Also store the folder structure - path relative to the base upload directory
+            try:
+                # Try to get relative path from UPLOAD_FOLDER
+                from app import UPLOAD_FOLDER
+                base_dir = Path(UPLOAD_FOLDER)
+                if filepath.is_relative_to(base_dir):
+                    folder_path = str(filepath.parent.relative_to(base_dir))
+                else:
+                    folder_path = ""
+            except (ImportError, ValueError):
+                folder_path = ""
+                
             file_stats = filepath.stat()
             
             with self.get_connection() as conn:
@@ -221,12 +236,14 @@ class DatabaseManager:
                             processing_progress = 0.0,
                             file_size_bytes = ?,
                             file_modified_at = ?,
-                            last_indexed_at = ?
+                            last_indexed_at = ?,
+                            folder_path = ?
                         WHERE id = ?
                     """, (
                         file_stats.st_size,
                         datetime.fromtimestamp(file_stats.st_mtime),
                         datetime.now(),
+                        folder_path,
                         existing['id']
                     ))
                     self.logger.info(f"Resurrected document {filepath.name} with ID {existing['id']}")
@@ -237,16 +254,18 @@ class DatabaseManager:
                     INSERT INTO pdf_documents (
                         filename,
                         relative_path,
+                        folder_path,
                         file_size_bytes,
                         file_created_at,
                         file_modified_at,
                         first_indexed_at,
                         last_indexed_at,
                         processing_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     filename,
-                    absolute_path,  # Store absolute path instead of relative path
+                    absolute_path,
+                    folder_path,
                     file_stats.st_size,
                     datetime.fromtimestamp(file_stats.st_ctime),
                     datetime.fromtimestamp(file_stats.st_mtime),
