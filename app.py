@@ -194,8 +194,15 @@ def get_files():
 
     files_status = []
     for filename in fs_files:
+        # Extract just the base filename for comparison
+        base_filename = os.path.basename(filename)
+        # Extract folder path for display
+        folder_path = os.path.dirname(filename)
+        
         file_info = {
-            'filename': filename,
+            'filename': filename,  # Full relative path
+            'base_filename': base_filename,  # Just the file name part
+            'folder_path': folder_path,      # Just the folder part
             'in_filesystem': True,
             'in_database': False,
             'processing_status': None,
@@ -203,11 +210,15 @@ def get_files():
             'last_indexed': None,
             'file_size': None,
             'processing_progress': None,
-            'id': None  # Add ID field
+            'id': None
         }
 
         for doc in db_docs:
-            if doc['filename'] == filename:
+            # Match by base filename and folder path if available
+            if doc['filename'] == base_filename and (
+                not doc.get('folder_path') or 
+                doc.get('folder_path') == folder_path
+            ):
                 file_info.update({
                     'in_database': True,
                     'processing_status': doc['processing_status'],
@@ -215,7 +226,7 @@ def get_files():
                     'last_indexed': doc['last_indexed_at'],
                     'file_size': doc.get('file_size_bytes'),
                     'processing_progress': calculate_processing_progress(doc),
-                    'id': doc['id']  # Include the ID
+                    'id': doc['id']
                 })
                 break
 

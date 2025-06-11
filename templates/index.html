@@ -1,28 +1,31 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>File Monitor - RectangularFile</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
+
 <body>
     <!-- Title Bar -->
     <div class="title-bar">
         <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
     </div>
 
-<!-- Navigation Bar -->
-<div class="nav-bar">
-    <ul>
-        <li><a href="/"{% if request.path == '/' %} class="active"{% endif %}>Home</a></li>
-        <li><a href="/search"{% if request.path.startswith('/search') %} class="active"{% endif %}>Search</a></li>
-        <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
-    </ul>
-</div>
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/" {% if request.path=='/' %} class="active" {% endif %}>Home</a></li>
+            <li><a href="/search" {% if request.path.startswith('/search') %} class="active" {% endif %}>Search</a></li>
+            <li><a href="/settings/page" {% if request.path.startswith('/settings') %} class="active" {% endif
+                    %}>Settings</a></li>
+        </ul>
+    </div>
 
     <div id="notification"></div>
-    
+
     <button id="scanButton" class="button">Scan Now</button>
-    
+
     <h2>Files in monitored directory:</h2>
     <ul id="fileList">
     </ul>
@@ -46,11 +49,11 @@
             const li = document.createElement('li');
             const fileItem = document.createElement('div');
             fileItem.className = 'file-item';
-            
+
             // File name with folder path
             const fileName = document.createElement('div');
             fileName.className = 'file-name';
-            
+
             // Show folder structure if available
             if (file.folder_path && file.folder_path !== '') {
                 const folderSpan = document.createElement('span');
@@ -58,44 +61,44 @@
                 folderSpan.textContent = file.folder_path + '/';
                 fileName.appendChild(folderSpan);
             }
-            
+
             const nameSpan = document.createElement('span');
             nameSpan.textContent = file.filename;
             fileName.appendChild(nameSpan);
-            
-            fileItem.appendChild(fileName);         
 
-                        // File actions section
-                        const fileActions = document.createElement('div');
-                        fileActions.className = 'file-actions';
-                        
-                        // Status badge if available
-                        if (file.in_database && file.processing_status) {
-                            const statusBadge = document.createElement('span');
-                            statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
-                            statusBadge.textContent = file.processing_status;
-                            fileActions.appendChild(statusBadge);
-                            
-                            // Progress bar for processing items
-                            if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
-                                const progressContainer = document.createElement('div');
-                                progressContainer.className = 'progress-container';
-                                
-                                const progressBar = document.createElement('div');
-                                progressBar.className = 'progress-bar';
-                                progressBar.style.width = `${file.processing_progress}%`;
-                                
-                                progressContainer.appendChild(progressBar);
-                                fileActions.appendChild(progressContainer);
-                            }
-                        }
-                        
-                        // Add a divider
-                        const divider = document.createElement('span');
-                        divider.className = 'divider';
-                        divider.textContent = '|';
-                        fileActions.appendChild(divider);
-                        
+            fileItem.appendChild(fileName);
+
+            // File actions section
+            const fileActions = document.createElement('div');
+            fileActions.className = 'file-actions';
+
+            // Status badge if available
+            if (file.in_database && file.processing_status) {
+                const statusBadge = document.createElement('span');
+                statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
+                statusBadge.textContent = file.processing_status;
+                fileActions.appendChild(statusBadge);
+
+                // Progress bar for processing items
+                if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
+                    const progressContainer = document.createElement('div');
+                    progressContainer.className = 'progress-container';
+
+                    const progressBar = document.createElement('div');
+                    progressBar.className = 'progress-bar';
+                    progressBar.style.width = `${file.processing_progress}%`;
+
+                    progressContainer.appendChild(progressBar);
+                    fileActions.appendChild(progressContainer);
+                }
+            }
+
+            // Add a divider
+            const divider = document.createElement('span');
+            divider.className = 'divider';
+            divider.textContent = '|';
+            fileActions.appendChild(divider);
+
             // Inspector button
             if (file.in_database && file.id) {
                 const inspectBtn = document.createElement('a');
@@ -103,7 +106,7 @@
                 inspectBtn.textContent = 'Inspect';
                 inspectBtn.href = `/document/${file.id}`;
                 fileActions.appendChild(inspectBtn);
-        }
+            }
 
             // Reset button
             const resetBtn = document.createElement('button');
@@ -121,23 +124,23 @@
             fetch(`/ocr/${docId}`)
                 .then(response => response.json())
                 .then(result => {
-                                if (result.success) {
+                    if (result.success) {
                         updateFileList();  // Update the file list to show processing status
-                                    const notification = document.getElementById('notification');
-                                    notification.textContent = result.message;
-                                    notification.style.display = 'block';
-                                    setTimeout(() => {
-                                        notification.style.display = 'none';
-                                    }, 3000);
-                                } else {
-                                    alert(`Error: ${result.message}`);
-                                }
-                            })
-                            .catch(error => {
-                    console.error("OCR error:", error);
-                                alert(`Error: ${error}`);
-                            });
+                        const notification = document.getElementById('notification');
+                        notification.textContent = result.message;
+                        notification.style.display = 'block';
+                        setTimeout(() => {
+                            notification.style.display = 'none';
+                        }, 3000);
+                    } else {
+                        alert(`Error: ${result.message}`);
                     }
+                })
+                .catch(error => {
+                    console.error("OCR error:", error);
+                    alert(`Error: ${error}`);
+                });
+        }
 
         function updateFileList() {
             fetch('/files')
@@ -149,21 +152,21 @@
                     data.files.forEach(file => {
                         const li = createFileCard(file);
                         fileList.appendChild(li);
-                });
+                    });
                 });
         }
-        
+
         // Initial file list update
         updateFileList();
 
         // Poll for new files every 5 seconds
-        setInterval(function() {
+        setInterval(function () {
             fetch('/new_files')
                 .then(response => response.json())
                 .then(data => {
                     if (data.new_files.length > 0 || data.removed_files.length > 0) {
                         updateFileList();
-                        
+
                         const notification = document.getElementById('notification');
                         let message = [];
                         if (data.new_files.length > 0) {
@@ -174,7 +177,7 @@
                         }
                         notification.textContent = message.join(' and ');
                         notification.style.display = 'block';
-                        
+
                         setTimeout(() => {
                             notification.style.display = 'none';
                         }, 3000);
@@ -183,17 +186,17 @@
         }, 5000);
 
         // Setup manual scan button
-        document.getElementById('scanButton').addEventListener('click', function() {
+        document.getElementById('scanButton').addEventListener('click', function () {
             this.textContent = 'Scanning...';
             this.disabled = true;
-            
+
             fetch('/scan')
                 .then(response => response.json())
                 .then(data => {
                     updateFileList();
                     this.textContent = 'Scan Now';
                     this.disabled = false;
-                    
+
                     const notification = document.getElementById('notification');
                     let message = [];
                     if (data.new_files.length > 0) {
@@ -216,23 +219,23 @@
                     this.disabled = false;
                 });
         });
-        
-        function resetProcessing(filename) {
-            console.log(`Resetting file: ${filename}`);
-            
+
+        function resetProcessing(fullPath) {
+            console.log(`Resetting file: ${fullPath}`);
+
             // First get the file's ID
             fetch('/files')
                 .then(response => response.json())
                 .then(data => {
-                    const fileInfo = data.files.find(f => f.filename === filename);
-                    
+                    const fileInfo = data.files.find(f => f.filename === fullPath);
+
                     if (fileInfo && fileInfo.id) {
                         // Now reset using the ID
                         fetch(`/reset/${fileInfo.id}`)
                             .then(response => response.json())
                             .then(result => {
                                 if (result.success) {
-                                    updateFileList();  // Update the file list to show new status
+                                    updateFileList();
                                     const notification = document.getElementById('notification');
                                     notification.textContent = result.message;
                                     notification.style.display = 'block';
@@ -258,7 +261,7 @@
         }
 
         // Update queue status every 3 seconds
-        setInterval(function() {
+        setInterval(function () {
             fetch('/ocr_queue')
                 .then(response => response.json())
                 .then(data => {
@@ -303,10 +306,11 @@
     </script>
 
     <style>
-    .folder-path {
-        color: #6c757d;
-        font-size: 0.9em;
-    }
+        .folder-path {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
     </style>
 </body>
+
 </html>
