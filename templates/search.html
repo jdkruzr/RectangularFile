@@ -73,6 +73,29 @@
             text-align: center;
             color: #666;
         }
+
+        .search-filters {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .filter-form {
+            display: flex;
+            align-items: center;
+        }
+        
+        .filter-form label {
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        
+        .filter-form select {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
     </style>
 </head>
 <body>
@@ -96,6 +119,27 @@
         <input type="text" name="q" class="search-input" placeholder="Enter search terms..." value="{{ query }}">
         <button type="submit" class="search-button">Search</button>
     </form>
+
+    <!-- Add this after the search form -->
+    <div class="search-filters">
+        <form class="filter-form" method="get" action="/search">
+            <input type="hidden" name="q" value="{{ query }}">
+            
+            <label for="folder-filter">Filter by folder:</label>
+            <select name="folder" id="folder-filter" onchange="this.form.submit()">
+                <option value="">All folders</option>
+                <option value="Moffitt" {% if current_folder == "Moffitt" %}selected{% endif %}>All Moffitt folders</option>
+                
+                <optgroup label="Specific folders">
+                    {% for folder in folders %}
+                        <option value="{{ folder }}" {% if current_folder == folder %}selected{% endif %}>
+                            {{ folder }}
+                        </option>
+                    {% endfor %}
+                </optgroup>
+            </select>
+        </form>
+    </div>
     
     <div class="search-results">
         {% if query %}

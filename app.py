@@ -315,14 +315,40 @@ def update_file_settings():
 
 @app.route('/search')
 def search_page():
-    """Render the search page."""
+    """Render the search page with folder filtering."""
     query = request.args.get('q', '')
+    folder_filter = request.args.get('folder', '')
     results = []
     
+    # Get all unique folders for the filter dropdown
+    folders = []
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT folder_path 
+                FROM pdf_documents 
+                WHERE processing_status != 'removed'
+                ORDER BY folder_path
+            """)
+            folders = [row[0] for row in cursor.fetchall() if row[0]]
+    except Exception as e:
+        app.logger.error(f"Error fetching folders: {e}")
+    
+    # Add special options for common searches
+    moffitt_folders = [f for f in folders if 'Moffitt' in f]
+    
     if query:
-        results = db.search_documents(query)
+        results = db.search_documents_with_folder_filter(query, folder_filter)
         
-    return render_template('search.html', query=query, results=results)
+    return render_template(
+        'search.html', 
+        query=query, 
+        results=results, 
+        folders=folders,
+        moffitt_folders=moffitt_folders,
+        current_folder=folder_filter
+    )
 
 @app.route('/view/<int:doc_id>')
 def view_document(doc_id):

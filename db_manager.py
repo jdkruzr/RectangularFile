@@ -519,6 +519,104 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self.logger.error(f"Error storing OCR results for document {doc_id}: {e}")
             return False
+        
+    def search_documents_with_folder_filter(self, query: str, folder_filter: str = "", limit: int = 20) -> List[Dict]:
+        """
+        Search for documents with optional folder filtering.
+        
+        Args:
+            query: The search query
+            folder_filter: Optional folder path to filter results
+            limit: Maximum number of results to return
+            
+        Returns:
+            List of matching documents with relevance info
+        """
+        try:
+            # Split query into keywords
+            keywords = [k.strip().lower() for k in query.split() if k.strip()]
+            if not keywords:
+                return []
+                
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Build search conditions
+                like_clauses = []
+                params = []
+                
+                for keyword in keywords:
+                    # Search in text_content, ocr_text, and extracted_metadata
+                    like_clauses.append("""(
+                        LOWER(p.text_content) LIKE ? OR 
+                        LOWER(p.ocr_text) LIKE ? OR 
+                        LOWER(d.extracted_metadata) LIKE ?
+                    )""")
+                    params.append(f"%{keyword}%")
+                    params.append(f"%{keyword}%")
+                    params.append(f"%{keyword}%")
+                
+                # Add folder filter if provided
+                folder_clause = ""
+                if folder_filter:
+                    if folder_filter.endswith("/Moffitt"):
+                        # Special case: search all Moffitt folders
+                        folder_clause = "AND d.folder_path LIKE '%/Moffitt' OR d.folder_path LIKE '%/Moffitt/%'"
+                    elif folder_filter == "Moffitt":
+                        # Search any folder containing Moffitt
+                        folder_clause = "AND d.folder_path LIKE '%Moffitt%'"
+                    else:
+                        # Exact folder match
+                        folder_clause = "AND d.folder_path = ?"
+                        params.append(folder_filter)
+                
+                # Query across all pages of all documents
+                query = f"""
+                    SELECT 
+                        d.id as doc_id,
+                        d.filename,
+                        d.relative_path,
+                        d.folder_path,
+                        COUNT(DISTINCT p.page_number) as matching_pages,
+                        d.pdf_title,
+                        d.pdf_author,
+                        d.word_count,
+                        d.extracted_metadata,
+                        GROUP_CONCAT(DISTINCT p.page_number) as page_numbers
+                    FROM 
+                        pdf_documents d
+                    JOIN 
+                        pdf_text_content p ON d.id = p.pdf_id
+                    WHERE 
+                        d.processing_status = 'completed'
+                        AND ({" OR ".join(like_clauses)})
+                        {folder_clause}
+                    GROUP BY 
+                        d.id
+                    ORDER BY 
+                        COUNT(*) DESC,
+                        d.word_count DESC
+                    LIMIT ?
+                """
+                
+                cursor.execute(query, params + [limit])
+                
+                # Convert to list of dictionaries
+                results = []
+                for row in cursor.fetchall():
+                    doc = dict(row)
+                    
+                    # Get text snippets containing query terms
+                    snippets = self.get_search_snippets(doc['doc_id'], keywords)
+                    doc['snippets'] = snippets
+                    
+                    results.append(doc)
+                    
+                return results
+                    
+        except sqlite3.Error as e:
+            self.logger.error(f"Error searching documents: {e}")
+            return []
 
     def get_active_documents(self, status: Optional[str] = None, sort_by: str = 'last_indexed_at', order: str = 'desc') -> List[Dict]:
         try:
