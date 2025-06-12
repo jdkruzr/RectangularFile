@@ -1,4 +1,8 @@
-def get_document_texts(db, doc_id=None, folder=None):
+# utils/wordcloud.py
+import re
+import string
+
+def get_document_texts(db, doc_id=None, folder=None, device=None, category=None):
     """
     Extract text from documents for word cloud generation.
     
@@ -6,6 +10,8 @@ def get_document_texts(db, doc_id=None, folder=None):
         db: DatabaseManager instance
         doc_id: Optional specific document ID
         folder: Optional folder filter
+        device: Optional device filter
+        category: Optional category filter
     
     Returns:
         List of text content from documents
@@ -27,8 +33,24 @@ def get_document_texts(db, doc_id=None, folder=None):
             params.append(doc_id)
             
         if folder:
+            query += " AND d.folder_path = ?"
+            params.append(folder)
+            
+        if device:
+            # Assuming device is the first component of the folder path
             query += " AND d.folder_path LIKE ?"
-            params.append(f"%{folder}%")
+            params.append(f"{device}/%")
+            
+        if category:
+            if category == 'Moffitt':
+                # Special case for Moffitt
+                query += " AND d.folder_path LIKE ?"
+                params.append(f"%Moffitt%")
+            else:
+                # Match category either as first component or second component
+                query += " AND (d.folder_path = ? OR d.folder_path LIKE ?)"
+                params.append(category)
+                params.append(f"%/{category}/%")
             
         cursor.execute(query, params)
         
@@ -41,10 +63,10 @@ def get_document_texts(db, doc_id=None, folder=None):
                 all_text.append(row['text_content'])
                 
         return all_text
-    
+
 def process_text_for_wordcloud(texts):
     """
-    Process a list of texts to prepare for word cloud generation.
+    Process a list of texts to prepare for word cloud generation without NLTK.
     
     Args:
         texts: List of text strings
@@ -52,34 +74,38 @@ def process_text_for_wordcloud(texts):
     Returns:
         Processed text ready for word cloud
     """
-    import nltk
-    from nltk.corpus import stopwords
-    from nltk.tokenize import word_tokenize
-    import string
-    
-    # Download required NLTK data if not present
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt')
-        
-    try:
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        nltk.download('stopwords')
+    # Common English stopwords
+    stopwords = {
+        'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 
+        'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 
+        'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 
+        'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 
+        'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 
+        'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 
+        'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 
+        'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 
+        'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 
+        'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 
+        'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 
+        'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 
+        'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 
+        't', 'can', 'will', 'just', 'don', 'should', 'now'
+    }
     
     # Combine all texts
-    combined_text = " ".join(texts)
+    combined_text = " ".join(texts).lower()
     
-    # Tokenize
-    tokens = word_tokenize(combined_text.lower())
+    # Remove punctuation
+    combined_text = re.sub(f'[{re.escape(string.punctuation)}]', ' ', combined_text)
     
-    # Remove punctuation and stopwords
-    stop_words = set(stopwords.words('english'))
-    tokens = [word for word in tokens if word.isalpha() and word not in stop_words and len(word) > 2]
+    # Split into words
+    words = combined_text.split()
+    
+    # Filter words
+    filtered_words = [word for word in words if word not in stopwords and len(word) > 2]
     
     # Return processed text
-    return " ".join(tokens)
+    return " ".join(filtered_words)
 
 def generate_wordcloud(text, width=800, height=400):
     """
@@ -96,11 +122,6 @@ def generate_wordcloud(text, width=800, height=400):
     from wordcloud import WordCloud
     import io
     from matplotlib import pyplot as plt
-    import numpy as np
-    from PIL import Image
-    
-    # Create mask (optional - for shaped word clouds)
-    # mask = np.array(Image.open("static/mask.png"))
     
     # Generate word cloud
     wordcloud = WordCloud(
@@ -110,7 +131,6 @@ def generate_wordcloud(text, width=800, height=400):
         max_words=200,
         contour_width=1,
         contour_color='steelblue',
-        # mask=mask,  # Uncomment if using a mask
         collocations=False  # Avoid repeating word pairs
     ).generate(text)
     

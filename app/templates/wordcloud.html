@@ -1,94 +1,246 @@
-<!-- app/templates/wordcloud.html -->
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Word Cloud - RectangularFile</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <style>
-        .wordcloud-container {
-            max-width: 800px;
-            margin: 20px auto;
-            background-color: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        .filter-form {
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-        }
-        
-        .filter-form select {
-            padding: 8px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-        }
-        
-        .filter-form button {
-            background-color: #007bff;
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        
-        .wordcloud-image {
-            max-width: 100%;
-            height: auto;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-    </style>
-</head>
-<body>
-    <!-- Title Bar -->
-    <div class="title-bar">
-        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
-    </div>
+{% extends "base.html" %}
 
-    <!-- Navigation Bar -->
-    <div class="nav-bar">
-        <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/search">Search</a></li>
-            <li><a href="/folders">Folders</a></li>
-            <li><a href="/wordcloud" class="active">Word Cloud</a></li>
-            <li><a href="/settings/page">Settings</a></li>
-        </ul>
-    </div>
+{% block title %}Word Cloud - RectangularFile{% endblock %}
 
-    <h2>Document Word Cloud</h2>
+{% block additional_styles %}
+<style>
+    .wordcloud-container {
+        max-width: 800px;
+        margin: 20px auto;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 20px;
+        text-align: center;
+    }
     
-    <div class="wordcloud-container">
-        <form class="filter-form" id="filterForm">
-            <select name="folder" id="folderSelect">
-                <option value="">All Folders</option>
-                {% for folder in folders %}
-                    <option value="{{ folder }}">{{ folder }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit">Generate Word Cloud</button>
-        </form>
-        
-        <div id="wordcloudDisplay">
-            <img id="wordcloudImage" class="wordcloud-image" src="/generate_wordcloud" alt="Word Cloud">
+    .filter-form {
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .filter-row {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .filter-form select {
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        min-width: 200px;
+    }
+    
+    .filter-form button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .wordcloud-image {
+        max-width: 100%;
+        height: auto;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .loading {
+        display: none;
+        margin: 20px auto;
+        text-align: center;
+    }
+    
+    .loading:after {
+        content: '.';
+        animation: dots 1.5s steps(5, end) infinite;
+    }
+    
+    @keyframes dots {
+        0%, 20% { content: '.'; }
+        40% { content: '..'; }
+        60% { content: '...'; }
+        80%, 100% { content: ''; }
+    }
+    
+    .filter-option {
+        margin: 10px 0;
+    }
+    
+    .filter-label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    
+    .tab-buttons {
+        display: flex;
+        border-bottom: 1px solid #ddd;
+        margin-bottom: 15px;
+    }
+    
+    .tab-button {
+        padding: 10px 20px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-bottom: none;
+        border-radius: 4px 4px 0 0;
+        margin-right: 5px;
+        cursor: pointer;
+    }
+    
+    .tab-button.active {
+        background-color: white;
+        border-bottom: 1px solid white;
+        margin-bottom: -1px;
+        font-weight: bold;
+    }
+    
+    .tab-content {
+        display: none;
+    }
+    
+    .tab-content.active {
+        display: block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2>Document Word Cloud</h2>
+
+<div class="wordcloud-container">
+    <div class="tab-buttons">
+        <div class="tab-button active" data-tab="by-category">By Category</div>
+        <div class="tab-button" data-tab="by-device">By Device</div>
+        <div class="tab-button" data-tab="by-folder">By Specific Folder</div>
+    </div>
+    
+    <form class="filter-form" id="filterForm">
+        <!-- By Category Tab -->
+        <div id="by-category" class="tab-content active">
+            <div class="filter-option">
+                <label class="filter-label" for="categorySelect">Select a category:</label>
+                <select id="categorySelect" name="category">
+                    <option value="">All Documents</option>
+                    {% for category, folders in folder_categories.items() %}
+                        <option value="{{ category.replace('All ', '').replace(' folders', '') }}">
+                            {{ category }} ({{ folders|length }} folders)
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
-    </div>
+        
+        <!-- By Device Tab -->
+        <div id="by-device" class="tab-content">
+            <div class="filter-option">
+                <label class="filter-label" for="deviceSelect">Select a device:</label>
+                <select id="deviceSelect" name="device">
+                    <option value="">All Devices</option>
+                    {% for device, folders in device_folders.items() %}
+                        <option value="{{ device }}">{{ device }} ({{ folders|length }} folders)</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <!-- By Folder Tab -->
+        <div id="by-folder" class="tab-content">
+            <div class="filter-option">
+                <label class="filter-label" for="folderSelect">Select a specific folder:</label>
+                <select id="folderSelect" name="folder">
+                    <option value="">All Folders</option>
+                    {% for folder in all_folders %}
+                        <option value="{{ folder }}">{{ folder }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="filter-row">
+            <button type="submit">Generate Word Cloud</button>
+        </div>
+    </form>
     
-    <script>
-        document.getElementById('filterForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            const folder = document.getElementById('folderSelect').value;
-            
-            // Update word cloud image
-            const img = document.getElementById('wordcloudImage');
-            img.src = `/generate_wordcloud?folder=${encodeURIComponent(folder)}`;
+    <div id="loadingIndicator" class="loading">Generating word cloud</div>
+    
+    <div id="wordcloudDisplay">
+        <img id="wordcloudImage" class="wordcloud-image" src="/generate_wordcloud" alt="Word Cloud">
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Tab switching
+    document.addEventListener('DOMContentLoaded', function() {
+        const tabButtons = document.querySelectorAll('.tab-button');
+        tabButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                // Deactivate all tabs
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // Activate clicked tab
+                this.classList.add('active');
+                document.getElementById(this.getAttribute('data-tab')).classList.add('active');
+            });
         });
-    </script>
-</body>
-</html>
+    });
+    
+    document.getElementById('filterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Get active tab
+        const activeTab = document.querySelector('.tab-button.active').getAttribute('data-tab');
+        
+        // Get parameters based on active tab
+        let params = new URLSearchParams();
+        if (activeTab === 'by-category') {
+            const category = document.getElementById('categorySelect').value;
+            if (category) params.append('category', category);
+        } else if (activeTab === 'by-device') {
+            const device = document.getElementById('deviceSelect').value;
+            if (device) params.append('device', device);
+        } else if (activeTab === 'by-folder') {
+            const folder = document.getElementById('folderSelect').value;
+            if (folder) params.append('folder', folder);
+        }
+        
+        // Add timestamp to prevent caching
+        params.append('t', new Date().getTime());
+        
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const wordcloudDisplay = document.getElementById('wordcloudDisplay');
+        const img = document.getElementById('wordcloudImage');
+        
+        // Show loading indicator
+        loadingIndicator.style.display = 'block';
+        wordcloudDisplay.style.display = 'none';
+        
+        // Create a new image to preload
+        const newImg = new Image();
+        newImg.onload = function() {
+            // Hide loading indicator and show the image
+            loadingIndicator.style.display = 'none';
+            wordcloudDisplay.style.display = 'block';
+            img.src = this.src;
+        };
+        
+        newImg.onerror = function() {
+            loadingIndicator.style.display = 'none';
+            wordcloudDisplay.style.display = 'block';
+            alert('Error generating word cloud. Please try again.');
+        };
+        
+        // Start loading the image
+        newImg.src = '/generate_wordcloud?' + params.toString();
+    });
+</script>
+{% endblock %}

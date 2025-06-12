@@ -417,6 +417,8 @@ def register_routes(app):
     
     # Add these routes to app/routes.py
 
+# Add these routes to app/routes.py inside the register_routes function
+
     @app.route('/wordcloud')
     def wordcloud_page():
         """Render the word cloud page."""
@@ -444,20 +446,27 @@ def register_routes(app):
         
         doc_id = request.args.get('doc_id', type=int)
         folder = request.args.get('folder', '')
+        device = request.args.get('device', '')
+        category = request.args.get('category', '')
         
-        # Extract text from database
-        texts = get_document_texts(app.db, doc_id, folder)
-        if not texts:
-            return jsonify(error="No text found for the given filters"), 404
-        
-        # Process text
-        processed_text = process_text_for_wordcloud(texts)
-        
-        # Generate word cloud
-        _, img_bytes = generate_wordcloud(processed_text)
-        
-        # Return image
-        return send_file(img_bytes, mimetype='image/png')
+        try:
+            # Get texts based on the provided filters
+            texts = get_document_texts(app.db, doc_id, folder, device, category)
+            
+            if not texts:
+                return jsonify(error="No text found for the given filters"), 404
+            
+            # Process text
+            processed_text = process_text_for_wordcloud(texts)
+            
+            # Generate word cloud
+            _, img_bytes = generate_wordcloud(processed_text)
+            
+            # Return image
+            return send_file(img_bytes, mimetype='image/png')
+        except Exception as e:
+            app.logger.error(f"Error generating word cloud: {e}")
+            return jsonify(error=str(e)), 500
 
     @app.route('/document/<int:doc_id>')
     def document_viewer(doc_id):
