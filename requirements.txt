@@ -9,3 +9,6 @@ bitsandbytes
 accelerate
 torchvision
 qwenvlutils
+wordcloud
+matplotlib
+nltk

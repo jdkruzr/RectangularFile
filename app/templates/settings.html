@@ -1,109 +1,132 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Settings - RectangularFile</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-</head>
-<body>
-    <!-- Title Bar -->
-    <div class="title-bar">
-        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
-    </div>
+{% extends "base.html" %}
 
-    <!-- Navigation Bar -->
-    <div class="nav-bar">
-        <ul>
-            <li><a href="/"{% if request.path == '/' %} class="active"{% endif %}>Home</a></li>
-            <li><a href="/search"{% if request.path.startswith('/search') %} class="active"{% endif %}>Search</a></li>
-            <li><a href="/folders"{% if request.path.startswith('/folders') %} class="active"{% endif %}>Folders</a></li>
-            <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
-        </ul>
-    </div>
+{% block title %}Settings - RectangularFile{% endblock %}
 
-    <h2>Application Settings</h2>
-
-    <div id="notification" class="notification"></div>
-
-    <div class="settings-section">
-        <h2>File Monitoring Settings</h2>
-        <div class="form-group">
-            <label for="pollingInterval">Polling Interval (seconds)</label>
-            <input type="number" id="pollingInterval" min="1" step="1" value="30">
-            <p>How often the system checks for new files. Lower values are more responsive but use more resources.</p>
-        </div>
-        <button id="saveMonitoringSettings" class="button">Save Monitoring Settings</button>
-    </div>
+{% block additional_styles %}
+<style>
+    .settings-section {
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 20px;
+        margin-bottom: 20px;
+        max-width: 600px;
+    }
     
-    <div class="settings-section">
-        <h2>File Processing Settings</h2>
-        <div class="form-group">
-            <label for="fileTypes">File Types to Monitor</label>
-            <input type="text" id="fileTypes" placeholder=".pdf,.txt (comma separated)" value=".pdf">
-            <p>File extensions to monitor, separated by commas. Leave empty to monitor all files.</p>
-        </div>
-        <button id="saveProcessingSettings" class="button">Save Processing Settings</button>
+    .settings-section h2 {
+        margin-top: 0;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+    }
+    
+    .form-group {
+        margin-bottom: 15px;
+    }
+    
+    .form-group p {
+        color: #6c757d;
+        font-size: 0.9em;
+        margin-top: 5px;
+    }
+    
+    .notification {
+        display: none;
+        background-color: #d4edda;
+        color: #155724;
+        padding: 10px 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2>Application Settings</h2>
+
+<div id="notification" class="notification"></div>
+
+<div class="settings-section">
+    <h2>File Monitoring Settings</h2>
+    <div class="form-group">
+        <label for="pollingInterval">Polling Interval (seconds)</label>
+        <input type="number" id="pollingInterval" min="1" step="1" value="30">
+        <p>How often the system checks for new files. Lower values are more responsive but use more resources.</p>
     </div>
+    <button id="saveMonitoringSettings" class="button">Save Monitoring Settings</button>
+</div>
 
-    <script>
-        // Load current settings when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            fetch('/settings')  // This is correct - it's the API endpoint
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('pollingInterval').value = data.polling_interval;
+<div class="settings-section">
+    <h2>File Processing Settings</h2>
+    <div class="form-group">
+        <label for="fileTypes">File Types to Monitor</label>
+        <input type="text" id="fileTypes" placeholder=".pdf,.txt (comma separated)" value=".pdf">
+        <p>File extensions to monitor, separated by commas. Leave empty to monitor all files.</p>
+    </div>
+    <button id="saveProcessingSettings" class="button">Save Processing Settings</button>
+</div>
+{% endblock %}
 
-                    // Also set file types if available
-                    if (data.file_types && Array.isArray(data.file_types)) {
-                        document.getElementById('fileTypes').value = data.file_types.join(',');
-                    }
-                });
-        });
-        
-        // Save monitoring settings
-        document.getElementById('saveMonitoringSettings').addEventListener('click', function() {
-            const pollingInterval = document.getElementById('pollingInterval').value;
-            
-            const formData = new FormData();
-            formData.append('polling_interval', pollingInterval);
-            
-            fetch('/settings', {
-                method: 'POST',
-                body: formData
-            })
+{% block scripts %}
+<script>
+    // Load current settings when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        fetch('/settings')  // This is correct - it's the API endpoint
             .then(response => response.json())
             .then(data => {
-                const notification = document.getElementById('notification');
-                notification.textContent = data.message;
-                notification.style.display = 'block';
-                
-                setTimeout(() => {
-                    notification.style.display = 'none';
-                }, 3000);
+                document.getElementById('pollingInterval').value = data.polling_interval;
+
+                // Also set file types if available
+                if (data.file_types && Array.isArray(data.file_types)) {
+                    document.getElementById('fileTypes').value = data.file_types.join(',');
+                }
             });
-        });
+    });
+    
+    // Save monitoring settings
+    document.getElementById('saveMonitoringSettings').addEventListener('click', function() {
+        const pollingInterval = document.getElementById('pollingInterval').value;
         
-        // Save processing settings
-        document.getElementById('saveProcessingSettings').addEventListener('click', function() {
-            const fileTypes = document.getElementById('fileTypes').value;
+        const formData = new FormData();
+        formData.append('polling_interval', pollingInterval);
+        
+        fetch('/settings', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            const notification = document.getElementById('notification');
+            notification.textContent = data.message;
+            notification.style.display = 'block';
             
-            const formData = new FormData();
-            formData.append('file_types', fileTypes);
-            
-            fetch('/settings/files', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                const notification = document.getElementById('notification');
-                notification.textContent = data.message;
-                notification.style.display = 'block';
-                
-                setTimeout(() => {
-                    notification.style.display = 'none';
-                }, 3000);
-            });
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
         });
-    </script>
-</body>
-</html>
+    });
+    
+    // Save processing settings
+    document.getElementById('saveProcessingSettings').addEventListener('click', function() {
+        const fileTypes = document.getElementById('fileTypes').value;
+        
+        const formData = new FormData();
+        formData.append('file_types', fileTypes);
+        
+        fetch('/settings/files', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            const notification = document.getElementById('notification');
+            notification.textContent = data.message;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        });
+    });
+</script>
+{% endblock %}

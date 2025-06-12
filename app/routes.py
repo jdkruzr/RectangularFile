@@ -414,6 +414,50 @@ def register_routes(app):
             results["error"] = str(e)
             
         return jsonify(results)
+    
+    # Add these routes to app/routes.py
+
+    @app.route('/wordcloud')
+    def wordcloud_page():
+        """Render the word cloud page."""
+        # Get folders for filtering
+        folders = []
+        try:
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT DISTINCT folder_path 
+                    FROM pdf_documents 
+                    WHERE processing_status = 'completed'
+                    ORDER BY folder_path
+                """)
+                folders = [row[0] for row in cursor.fetchall() if row[0]]
+        except Exception as e:
+            app.logger.error(f"Error fetching folders: {e}")
+        
+        return render_template('wordcloud.html', folders=folders)
+
+    @app.route('/generate_wordcloud')
+    def generate_wordcloud_image():
+        """Generate and return a word cloud image."""
+        from utils.wordcloud import get_document_texts, process_text_for_wordcloud, generate_wordcloud
+        
+        doc_id = request.args.get('doc_id', type=int)
+        folder = request.args.get('folder', '')
+        
+        # Extract text from database
+        texts = get_document_texts(app.db, doc_id, folder)
+        if not texts:
+            return jsonify(error="No text found for the given filters"), 404
+        
+        # Process text
+        processed_text = process_text_for_wordcloud(texts)
+        
+        # Generate word cloud
+        _, img_bytes = generate_wordcloud(processed_text)
+        
+        # Return image
+        return send_file(img_bytes, mimetype='image/png')
 
     @app.route('/document/<int:doc_id>')
     def document_viewer(doc_id):

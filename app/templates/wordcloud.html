@@ -1,0 +1,94 @@
+<!-- app/templates/wordcloud.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Word Cloud - RectangularFile</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .wordcloud-container {
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .filter-form {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .filter-form select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .filter-form button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .wordcloud-image {
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/search">Search</a></li>
+            <li><a href="/folders">Folders</a></li>
+            <li><a href="/wordcloud" class="active">Word Cloud</a></li>
+            <li><a href="/settings/page">Settings</a></li>
+        </ul>
+    </div>
+
+    <h2>Document Word Cloud</h2>
+    
+    <div class="wordcloud-container">
+        <form class="filter-form" id="filterForm">
+            <select name="folder" id="folderSelect">
+                <option value="">All Folders</option>
+                {% for folder in folders %}
+                    <option value="{{ folder }}">{{ folder }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit">Generate Word Cloud</button>
+        </form>
+        
+        <div id="wordcloudDisplay">
+            <img id="wordcloudImage" class="wordcloud-image" src="/generate_wordcloud" alt="Word Cloud">
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('filterForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const folder = document.getElementById('folderSelect').value;
+            
+            // Update word cloud image
+            const img = document.getElementById('wordcloudImage');
+            img.src = `/generate_wordcloud?folder=${encodeURIComponent(folder)}`;
+        });
+    </script>
+</body>
+</html>

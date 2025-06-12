@@ -1,65 +1,50 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Error - RectangularFile</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-    <style>
-        .error-container {
-            margin: 50px auto;
-            padding: 20px;
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 5px;
-            max-width: 600px;
-            text-align: center;
-        }
-        
-        .error-title {
-            color: #721c24;
-            font-size: 24px;
-            margin-bottom: 15px;
-        }
-        
-        .error-message {
-            color: #721c24;
-            margin-bottom: 20px;
-        }
-        
-        .home-button {
-            display: inline-block;
-            background-color: #007bff;
-            color: white;
-            padding: 10px 20px;
-            text-decoration: none;
-            border-radius: 5px;
-            margin-top: 10px;
-        }
-        
-        .home-button:hover {
-            background-color: #0056b3;
-        }
-    </style>
-</head>
-<body>
-    <!-- Title Bar -->
-    <div class="title-bar">
-        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
-    </div>
+{% extends "base.html" %}
 
-    <!-- Navigation Bar -->
-    <div class="nav-bar">
-        <ul>
-            <li><a href="/" {% if request.path=='/' %} class="active" {% endif %}>Home</a></li>
-            <li><a href="/search" {% if request.path.startswith('/search') %} class="active" {% endif %}>Search</a></li>
-            <li><a href="/folders"{% if request.path.startswith('/folders') %} class="active"{% endif %}>Folders</a></li>
-            <li><a href="/settings/page" {% if request.path.startswith('/settings') %} class="active" {% endif%}>Settings</a></li>
-        </ul>
-    </div>
+{% block title %}Error - RectangularFile{% endblock %}
 
-    <div class="error-container">
-        <h2 class="error-title">Error</h2>
-        <p class="error-message">{{ message }}</p>
-        <a href="/" class="home-button">Return to Home</a>
-    </div>
-</body>
-</html>
+{% block additional_styles %}
+<style>
+    .error-container {
+        margin: 50px auto;
+        padding: 20px;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 5px;
+        max-width: 600px;
+        text-align: center;
+    }
+    
+    .error-title {
+        color: #721c24;
+        font-size: 24px;
+        margin-bottom: 15px;
+    }
+    
+    .error-message {
+        color: #721c24;
+        margin-bottom: 20px;
+    }
+    
+    .home-button {
+        display: inline-block;
+        background-color: #007bff;
+        color: white;
+        padding: 10px 20px;
+        text-decoration: none;
+        border-radius: 5px;
+        margin-top: 10px;
+    }
+    
+    .home-button:hover {
+        background-color: #0056b3;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <h2 class="error-title">Error</h2>
+    <p class="error-message">{{ message }}</p>
+    <a href="/" class="home-button">Return to Home</a>
+</div>
+{% endblock %}
