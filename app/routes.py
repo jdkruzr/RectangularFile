@@ -421,7 +421,7 @@ def register_routes(app):
 
     @app.route('/wordcloud')
     def wordcloud_page():
-        """Render the word cloud page with cross-device folder grouping."""
+        """Render the word cloud page with automatically detected cross-device categories."""
         # Get all folders for filtering
         all_folders = []
         try:
@@ -440,6 +440,7 @@ def register_routes(app):
         # Group folders by common patterns
         folder_categories = {}
         device_folders = {}
+        common_categories = set()
         
         for folder in all_folders:
             # Skip empty folders
@@ -459,19 +460,39 @@ def register_routes(app):
                 device_folders[device] = []
             device_folders[device].append(folder)
             
-            # If there are at least 2 parts, the second part is often a category
-            if len(parts) >= 2:
-                category = parts[1]
-                category_key = f"All {category} folders"
-                if category_key not in folder_categories:
-                    folder_categories[category_key] = []
-                folder_categories[category_key].append(folder)
-            
-            # For specific use cases like "Moffitt"
-            if any('Moffitt' in part for part in parts):
-                if 'All Moffitt folders' not in folder_categories:
-                    folder_categories['All Moffitt folders'] = []
-                folder_categories['All Moffitt folders'].append(folder)
+            # Add all path components as potential categories
+            # (except the device name which is usually the first component)
+            for i, part in enumerate(parts):
+                if i > 0 and part:  # Skip device name and empty parts
+                    common_categories.add(part)
+        
+        # For each potential category, check if it appears across multiple devices
+        cross_device_categories = {}
+        
+        # Only process if we have multiple devices
+        if len(device_folders) > 1:
+            for category in common_categories:
+                # Count how many different devices have this category
+                devices_with_category = set()
+                category_folders = []
+                
+                for folder in all_folders:
+                    if f"/{category}/" in f"/{folder}/" or folder.startswith(f"{category}/"):
+                        parts = folder.split('/')
+                        if parts and parts[0]:
+                            devices_with_category.add(parts[0])
+                            category_folders.append(folder)
+                
+                # If this category appears in multiple devices, add it to cross-device categories
+                if len(devices_with_category) > 1:
+                    cross_device_categories[f"All {category} folders"] = category_folders
+        
+        # Sort by folder count (most common categories first)
+        folder_categories = {k: v for k, v in sorted(
+            cross_device_categories.items(), 
+            key=lambda item: len(item[1]), 
+            reverse=True
+        )}
         
         return render_template(
             'wordcloud.html', 
@@ -491,8 +512,51 @@ def register_routes(app):
         category = request.args.get('category', '')
         
         try:
-            # Get texts based on the provided filters
-            texts = get_document_texts(app.db, doc_id, folder, device, category)
+            texts = []
+            
+            # If a specific category is selected, get texts from all matching folders
+            if category:
+                # Fetch all folders containing this category
+                with app.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT DISTINCT folder_path 
+                        FROM pdf_documents 
+                        WHERE folder_path LIKE ? OR folder_path LIKE ?
+                    """, (f"{category}%", f"%/{category}/%"))
+                    
+                    matching_folders = [row[0] for row in cursor.fetchall() if row[0]]
+                    
+                    # Get texts from all matching folders
+                    for matching_folder in matching_folders:
+                        folder_texts = get_document_texts(app.db, doc_id=None, folder=matching_folder)
+                        texts.extend(folder_texts)
+            
+            # If a specific device is selected
+            elif device:
+                # Get all folders for this device
+                with app.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT DISTINCT folder_path 
+                        FROM pdf_documents 
+                        WHERE folder_path LIKE ?
+                    """, (f"{device}/%",))
+                    
+                    device_folders = [row[0] for row in cursor.fetchall() if row[0]]
+                    
+                    # Get texts from all folders for this device
+                    for device_folder in device_folders:
+                        folder_texts = get_document_texts(app.db, doc_id=None, folder=device_folder)
+                        texts.extend(folder_texts)
+            
+            # If a specific folder is selected
+            elif folder:
+                texts = get_document_texts(app.db, doc_id=None, folder=folder)
+            
+            # If no filters, get all texts
+            else:
+                texts = get_document_texts(app.db, doc_id=None)
             
             if not texts:
                 return jsonify(error="No text found for the given filters"), 404
