@@ -229,7 +229,24 @@
         newImg.onerror = function() {
             document.getElementById('loadingIndicator').style.display = 'none';
             document.getElementById('wordcloudDisplay').style.display = 'block';
-            alert('Error generating word cloud. Please try again.');
+            
+            // Try to get more information about the error
+            fetch('/generate_wordcloud?' + params.toString())
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || `Server returned ${response.status}`);
+                        });
+                    }
+                    throw new Error('Failed to load image but server response was ok');
+                })
+                .then(() => {
+                    alert('Error generating word cloud: Unknown error');
+                })
+                .catch(error => {
+                    console.error('Error details:', error);
+                    alert('Error generating word cloud: ' + error.message);
+                });
         };
         
         // Start loading the image

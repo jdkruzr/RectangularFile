@@ -1,6 +1,7 @@
 # utils/wordcloud.py
 import re
 import string
+import logging
 
 def get_document_texts(db, doc_id=None, folder=None, device=None, category=None):
     """
@@ -16,6 +17,11 @@ def get_document_texts(db, doc_id=None, folder=None, device=None, category=None)
     Returns:
         List of text content from documents
     """
+
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Getting document texts - doc_id: {doc_id}, folder: {folder}, device: {device}, category: {category}")
+    
     with db.get_connection() as conn:
         cursor = conn.cursor()
         
@@ -51,6 +57,9 @@ def get_document_texts(db, doc_id=None, folder=None, device=None, category=None)
                 query += " AND (d.folder_path = ? OR d.folder_path LIKE ?)"
                 params.append(category)
                 params.append(f"%/{category}/%")
+        
+        logger.info(f"Query: {query}")
+        logger.info(f"Params: {params}")
             
         cursor.execute(query, params)
         
@@ -61,7 +70,8 @@ def get_document_texts(db, doc_id=None, folder=None, device=None, category=None)
                 all_text.append(row['ocr_text'])
             elif row['text_content'] and row['text_content'].strip():
                 all_text.append(row['text_content'])
-                
+        
+        logger.info(f"Found {len(all_text)} text items")
         return all_text
 
 def process_text_for_wordcloud(texts):
