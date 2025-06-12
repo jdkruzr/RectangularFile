@@ -37,59 +37,105 @@
 
 {% block scripts %}
 <script>
-    function createFileCard(file) {
-        const li = document.createElement('li');
-        const fileItem = document.createElement('div');
-        fileItem.className = 'file-item';
+function createFileCard(file) {
+    const li = document.createElement('li');
+    const fileItem = document.createElement('div');
+    fileItem.className = 'file-item';
 
-        // File name with cleaned folder path
-        const fileName = document.createElement('div');
-        fileName.className = 'file-name';
+    // File name with cleaned folder path
+    const fileName = document.createElement('div');
+    fileName.className = 'file-name';
 
-        // Extract just the base filename (the part after the last slash)
-        const baseName = file.filename.includes('/') ? 
-            file.filename.substring(file.filename.lastIndexOf('/') + 1) : 
-            file.filename;
-        
-        // Extract just the directory part
-        const dirPath = file.filename.includes('/') ? 
-            file.filename.substring(0, file.filename.lastIndexOf('/')) : 
-            '';
-        
-        // Clean up the directory path by removing redundancy
-        const dirParts = dirPath.split('/');
-        let cleanDirPath = '';
-        
-        // Build a clean path by removing adjacent duplicates
-        let lastPart = '';
-        for (const part of dirParts) {
-            if (part !== lastPart) {
-                if (cleanDirPath) cleanDirPath += '/';
-                cleanDirPath += part;
-                lastPart = part;
-            }
+    // Extract just the base filename (the part after the last slash)
+    const baseName = file.filename.includes('/') ? 
+        file.filename.substring(file.filename.lastIndexOf('/') + 1) : 
+        file.filename;
+    
+    // Extract just the directory part
+    const dirPath = file.filename.includes('/') ? 
+        file.filename.substring(0, file.filename.lastIndexOf('/')) : 
+        '';
+    
+    // Clean up the directory path by removing redundancy
+    const dirParts = dirPath.split('/');
+    let cleanDirPath = '';
+    
+    // Build a clean path by removing adjacent duplicates
+    let lastPart = '';
+    for (const part of dirParts) {
+        if (part !== lastPart) {
+            if (cleanDirPath) cleanDirPath += '/';
+            cleanDirPath += part;
+            lastPart = part;
         }
-        
-        // Show folder structure if available
-        if (cleanDirPath) {
-            const folderSpan = document.createElement('span');
-            folderSpan.className = 'folder-path';
-            folderSpan.textContent = cleanDirPath + '/';
-            fileName.appendChild(folderSpan);
-        }
-
-        // Add the base filename
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = baseName;
-        fileName.appendChild(nameSpan);
-
-        fileItem.appendChild(fileName);
-
-        // Rest of your existing code...
-        // File actions section
-        const fileActions = document.createElement('div');
-        // ...
     }
+    
+    // Show folder structure if available
+    if (cleanDirPath) {
+        const folderSpan = document.createElement('span');
+        folderSpan.className = 'folder-path';
+        folderSpan.textContent = cleanDirPath + '/';
+        fileName.appendChild(folderSpan);
+    }
+
+    // Add the base filename
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = baseName;
+    fileName.appendChild(nameSpan);
+
+    fileItem.appendChild(fileName);
+
+    // File actions section
+    const fileActions = document.createElement('div');
+    fileActions.className = 'file-actions';
+
+    // Status badge if available
+    if (file.in_database && file.processing_status) {
+        const statusBadge = document.createElement('span');
+        statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
+        statusBadge.textContent = file.processing_status;
+        fileActions.appendChild(statusBadge);
+
+        // Progress bar for processing items
+        if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
+            const progressContainer = document.createElement('div');
+            progressContainer.className = 'progress-container';
+
+            const progressBar = document.createElement('div');
+            progressBar.className = 'progress-bar';
+            progressBar.style.width = `${file.processing_progress}%`;
+
+            progressContainer.appendChild(progressBar);
+            fileActions.appendChild(progressContainer);
+        }
+    }
+
+    // Add a divider
+    const divider = document.createElement('span');
+    divider.className = 'divider';
+    divider.textContent = '|';
+    fileActions.appendChild(divider);
+
+    // Inspector button
+    if (file.in_database && file.id) {
+        const inspectBtn = document.createElement('a');
+        inspectBtn.className = 'inspect-button';
+        inspectBtn.textContent = 'Inspect';
+        inspectBtn.href = `/document/${file.id}`;
+        fileActions.appendChild(inspectBtn);
+    }
+
+    // Reset button
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'reset-button';
+    resetBtn.textContent = 'Reset';
+    resetBtn.onclick = () => resetProcessing(file.filename);
+    fileActions.appendChild(resetBtn);
+
+    fileItem.appendChild(fileActions);
+    li.appendChild(fileItem);
+    return li;
+}
 
     function processOCR(docId) {
         fetch(`/ocr/${docId}`)
