@@ -3,7 +3,7 @@
 
 import argparse
 import sys
-from schema_manager import SchemaManager
+from db.schema_manager import SchemaManager
 
 def initialize_version_table(db_path, target_version):
     """Initialize the version table at a specific version."""

@@ -8,7 +8,7 @@ from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.layout import LTTextContainer, LTChar, LTPage
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
-from db_manager import DatabaseManager
+from db.db_manager import DatabaseManager
 
 class PDFProcessor:
     def __init__(self):

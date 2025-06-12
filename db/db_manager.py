@@ -7,7 +7,7 @@ from pathlib import Path
 import threading
 import os
 import json
-from schema_manager import SchemaManager  # Import the new schema manager
+from db.schema_manager import SchemaManager  # Import the new schema manager
 
 class DatabaseManager:
     def __init__(self, db_path: str = "pdf_index.db"):

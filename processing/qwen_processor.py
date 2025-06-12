@@ -18,7 +18,7 @@ from transformers import (
 )
 from PIL import Image
 from pdf2image import convert_from_path
-from db_manager import DatabaseManager
+from db.db_manager import DatabaseManager
 # Import the vision utility
 from qwen_vl_utils import process_vision_info
 

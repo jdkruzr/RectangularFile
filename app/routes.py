@@ -6,6 +6,7 @@ import time
 import json
 import re
 from datetime import datetime
+from utils.helpers import calculate_processing_progress
 
 def register_routes(app):
     """Register application routes."""
@@ -480,21 +481,6 @@ def register_routes(app):
             has_comparison=has_comparison,
             highlight=highlight
         )
-
-    # Add the helper function for calculating processing progress
-    def calculate_processing_progress(doc):
-        """Calculate the processing progress percentage for a document."""
-        status = doc.get('processing_status', '').lower()
-        if status == 'completed':
-            return 100.0
-        elif status == 'failed':
-            return 0.0
-        elif status == 'pending':
-            return 0.0
-        elif status == 'processing':
-            return doc.get('processing_progress', 50.0)
-        else:
-            return 0.0
 
     # Return the app for chaining
     return app
