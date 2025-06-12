@@ -4,7 +4,94 @@
 
 {% block additional_styles %}
 <style>
-    /* Keep your existing styles */
+    .wordcloud-container {
+        max-width: 800px;
+        margin: 20px auto;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 20px;
+    }
+    
+    .filter-selection {
+        margin-bottom: 25px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .filter-type {
+        margin-bottom: 15px;
+    }
+    
+    .filter-label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: bold;
+        color: #495057;
+    }
+    
+    .filter-select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 16px;
+        color: #495057;
+    }
+    
+    .generate-button {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    .generate-button:hover {
+        background-color: #0069d9;
+    }
+    
+    .wordcloud-display {
+        text-align: center;
+    }
+    
+    .wordcloud-image {
+        max-width: 100%;
+        height: auto;
+        border-radius: 4px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        margin-top: 10px;
+    }
+    
+    .loading-indicator {
+        display: none;
+        margin: 40px auto;
+        text-align: center;
+        font-size: 18px;
+        color: #6c757d;
+    }
+    
+    .loading-spinner {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        border: 3px solid rgba(0, 123, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #007bff;
+        animation: spin 1s ease-in-out infinite;
+        margin-right: 10px;
+        vertical-align: middle;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
 </style>
 {% endblock %}
 
@@ -12,24 +99,26 @@
 <h2>Document Word Cloud</h2>
 
 <div class="wordcloud-container">
-    <div class="tab-buttons">
-        {% if folder_categories %}
-        <div class="tab-button active" data-tab="by-category">By Category</div>
-        {% endif %}
-        {% if device_folders %}
-        <div class="tab-button {% if not folder_categories %}active{% endif %}" data-tab="by-device">By Device</div>
-        {% endif %}
-        <div class="tab-button {% if not folder_categories and not device_folders %}active{% endif %}" data-tab="by-folder">By Specific Folder</div>
-    </div>
-    
-    <form class="filter-form" id="filterForm">
-        <!-- By Category Tab -->
-        {% if folder_categories %}
-        <div id="by-category" class="tab-content {% if folder_categories %}active{% endif %}">
-            <div class="filter-option">
-                <label class="filter-label" for="categorySelect">Select a category:</label>
-                <select id="categorySelect" name="category">
-                    <option value="">All Documents</option>
+    <div class="filter-selection">
+        <form id="filterForm">
+            <div class="filter-type">
+                <label class="filter-label" for="scopeSelect">Generate word cloud for:</label>
+                <select id="scopeSelect" class="filter-select" onchange="updateFilterOptions()">
+                    {% if folder_categories %}
+                    <option value="category">Cross-Device Categories</option>
+                    {% endif %}
+                    {% if device_folders %}
+                    <option value="device">Devices</option>
+                    {% endif %}
+                    <option value="folder">Specific Folders</option>
+                    <option value="all">All Documents</option>
+                </select>
+            </div>
+            
+            <div id="categoryFilter" class="filter-type" style="display: none;">
+                <label class="filter-label" for="categorySelect">Select category:</label>
+                <select id="categorySelect" class="filter-select">
+                    <option value="">Select a category</option>
                     {% for category, folders in folder_categories.items() %}
                         <option value="{{ category.replace('All ', '').replace(' folders', '') }}">
                             {{ category }} ({{ folders|length }} folders)
@@ -37,45 +126,39 @@
                     {% endfor %}
                 </select>
             </div>
-        </div>
-        {% endif %}
-        
-        <!-- By Device Tab -->
-        {% if device_folders %}
-        <div id="by-device" class="tab-content {% if not folder_categories %}active{% endif %}">
-            <div class="filter-option">
-                <label class="filter-label" for="deviceSelect">Select a device:</label>
-                <select id="deviceSelect" name="device">
-                    <option value="">All Devices</option>
+            
+            <div id="deviceFilter" class="filter-type" style="display: none;">
+                <label class="filter-label" for="deviceSelect">Select device:</label>
+                <select id="deviceSelect" class="filter-select">
+                    <option value="">Select a device</option>
                     {% for device, folders in device_folders.items() %}
-                        <option value="{{ device }}">{{ device }} ({{ folders|length }} folders)</option>
+                        <option value="{{ device }}">
+                            {{ device }} ({{ folders|length }} folders)
+                        </option>
                     {% endfor %}
                 </select>
             </div>
-        </div>
-        {% endif %}
-        
-        <!-- By Folder Tab -->
-        <div id="by-folder" class="tab-content {% if not folder_categories and not device_folders %}active{% endif %}">
-            <div class="filter-option">
-                <label class="filter-label" for="folderSelect">Select a specific folder:</label>
-                <select id="folderSelect" name="folder">
-                    <option value="">All Folders</option>
+            
+            <div id="folderFilter" class="filter-type" style="display: none;">
+                <label class="filter-label" for="folderSelect">Select folder:</label>
+                <select id="folderSelect" class="filter-select">
+                    <option value="">Select a folder</option>
                     {% for folder in all_folders %}
                         <option value="{{ folder }}">{{ folder }}</option>
                     {% endfor %}
                 </select>
             </div>
-        </div>
-        
-        <div class="filter-row">
-            <button type="submit">Generate Word Cloud</button>
-        </div>
-    </form>
+            
+            <button type="submit" class="generate-button">Generate Word Cloud</button>
+        </form>
+    </div>
     
-    <div id="loadingIndicator" class="loading">Generating word cloud</div>
+    <div id="loadingIndicator" class="loading-indicator">
+        <div class="loading-spinner"></div>
+        <span>Creating word cloud...</span>
+    </div>
     
-    <div id="wordcloudDisplay">
+    <div id="wordcloudDisplay" class="wordcloud-display">
         <img id="wordcloudImage" class="wordcloud-image" src="/generate_wordcloud" alt="Word Cloud">
     </div>
 </div>
@@ -83,6 +166,74 @@
 
 {% block scripts %}
 <script>
-    // Keep your existing JavaScript
+    function updateFilterOptions() {
+        const scope = document.getElementById('scopeSelect').value;
+        
+        // Hide all filter options first
+        document.getElementById('categoryFilter').style.display = 'none';
+        document.getElementById('deviceFilter').style.display = 'none';
+        document.getElementById('folderFilter').style.display = 'none';
+        
+        // Show the relevant filter based on selection
+        if (scope === 'category') {
+            document.getElementById('categoryFilter').style.display = 'block';
+        } else if (scope === 'device') {
+            document.getElementById('deviceFilter').style.display = 'block';
+        } else if (scope === 'folder') {
+            document.getElementById('folderFilter').style.display = 'block';
+        }
+    }
+    
+    // Initialize filter visibility
+    document.addEventListener('DOMContentLoaded', function() {
+        updateFilterOptions();
+    });
+    
+    document.getElementById('filterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Get the selected scope
+        const scope = document.getElementById('scopeSelect').value;
+        
+        // Build query parameters
+        let params = new URLSearchParams();
+        
+        if (scope === 'category') {
+            const category = document.getElementById('categorySelect').value;
+            if (category) params.append('category', category);
+        } else if (scope === 'device') {
+            const device = document.getElementById('deviceSelect').value;
+            if (device) params.append('device', device);
+        } else if (scope === 'folder') {
+            const folder = document.getElementById('folderSelect').value;
+            if (folder) params.append('folder', folder);
+        }
+        
+        // Add timestamp to prevent caching
+        params.append('t', new Date().getTime());
+        
+        // Show loading indicator
+        document.getElementById('loadingIndicator').style.display = 'flex';
+        document.getElementById('wordcloudDisplay').style.display = 'none';
+        
+        // Create a new image to preload
+        const newImg = new Image();
+        
+        newImg.onload = function() {
+            // Hide loading indicator and show the image
+            document.getElementById('loadingIndicator').style.display = 'none';
+            document.getElementById('wordcloudDisplay').style.display = 'block';
+            document.getElementById('wordcloudImage').src = this.src;
+        };
+        
+        newImg.onerror = function() {
+            document.getElementById('loadingIndicator').style.display = 'none';
+            document.getElementById('wordcloudDisplay').style.display = 'block';
+            alert('Error generating word cloud. Please try again.');
+        };
+        
+        // Start loading the image
+        newImg.src = '/generate_wordcloud?' + params.toString();
+    });
 </script>
 {% endblock %}
