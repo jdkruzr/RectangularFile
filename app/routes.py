@@ -250,7 +250,7 @@ def register_routes(app):
         results = []
         
         # Get all unique folders for the filter dropdown
-        folders = []
+        all_folders = []
         try:
             with app.db.get_connection() as conn:
                 cursor = conn.cursor()
@@ -260,22 +260,104 @@ def register_routes(app):
                     WHERE processing_status != 'removed'
                     ORDER BY folder_path
                 """)
-                folders = [row[0] for row in cursor.fetchall() if row[0]]
+                all_folders = [row[0] for row in cursor.fetchall() if row[0]]
         except Exception as e:
             app.logger.error(f"Error fetching folders: {e}")
         
-        # Add special options for common searches
-        moffitt_folders = [f for f in folders if 'Moffitt' in f]
+        # Group folders by common patterns
+        folder_categories = {}
+        device_folders = {}
+        common_categories = set()
+        
+        for folder in all_folders:
+            # Skip empty folders
+            if not folder:
+                continue
+                
+            # Split the folder path into components
+            parts = folder.split('/')
+            
+            # Skip empty parts
+            if not parts or not parts[0]:
+                continue
+                
+            # First part is typically the device
+            device = parts[0]
+            if device not in device_folders:
+                device_folders[device] = []
+            device_folders[device].append(folder)
+            
+            # Add all path components as potential categories
+            # (except the device name which is usually the first component)
+            for i, part in enumerate(parts):
+                if i > 0 and part:  # Skip device name and empty parts
+                    common_categories.add(part)
+        
+        # For each potential category, check if it appears across multiple devices
+        cross_device_categories = {}
+        
+        # Only process if we have multiple devices
+        if len(device_folders) > 1:
+            for category in common_categories:
+                # Count how many different devices have this category
+                devices_with_category = set()
+                category_folders = []
+                
+                for folder in all_folders:
+                    if f"/{category}/" in f"/{folder}/" or folder.startswith(f"{category}/"):
+                        parts = folder.split('/')
+                        if parts and parts[0]:
+                            devices_with_category.add(parts[0])
+                            category_folders.append(folder)
+                
+                # If this category appears in multiple devices, add it to cross-device categories
+                if len(devices_with_category) > 1:
+                    cross_device_categories[f"All {category} folders"] = category_folders
+        
+        # Sort by folder count (most common categories first)
+        folder_categories = {k: v for k, v in sorted(
+            cross_device_categories.items(), 
+            key=lambda item: len(item[1]), 
+            reverse=True
+        )}
         
         if query:
-            results = app.db.search_documents_with_folder_filter(query, folder_filter)
+            # If the folder filter is a category (not a specific folder)
+            if folder_filter in [k.replace('All ', '').replace(' folders', '') for k in folder_categories.keys()]:
+                # Get all folders for this category
+                category = folder_filter
+                matching_folders = []
+                
+                for folder in all_folders:
+                    if (f"/{category}/" in f"/{folder}/" or 
+                        folder.startswith(f"{category}/") or 
+                        folder.endswith(f"/{category}")):
+                        matching_folders.append(folder)
+                
+                # Build a combined result from all matching folders
+                all_results = []
+                for folder in matching_folders:
+                    folder_results = app.db.search_documents_with_folder_filter(query, folder)
+                    all_results.extend(folder_results)
+                
+                # Remove duplicates (by doc_id)
+                seen_ids = set()
+                results = []
+                for res in all_results:
+                    if res['doc_id'] not in seen_ids:
+                        seen_ids.add(res['doc_id'])
+                        results.append(res)
+            else:
+                # Regular folder search
+                results = app.db.search_documents_with_folder_filter(query, folder_filter)
             
         return render_template(
             'search.html', 
             query=query, 
             results=results, 
-            folders=folders,
-            moffitt_folders=moffitt_folders,
+            all_folders=all_folders,
+            folder_categories=folder_categories,
+            device_folders=device_folders,
             current_folder=folder_filter
         )
 

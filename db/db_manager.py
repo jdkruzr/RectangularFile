@@ -362,9 +362,9 @@ class DatabaseManager:
         
         Args:
             query: The search query
-            folder_filter: Optional folder path to filter results
+            folder_filter: Optional folder path or device name to filter results
             limit: Maximum number of results to return
-            
+                
         Returns:
             List of matching documents with relevance info
         """
@@ -373,7 +373,7 @@ class DatabaseManager:
             keywords = [k.strip().lower() for k in query.split() if k.strip()]
             if not keywords:
                 return []
-                
+                    
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
@@ -395,14 +395,12 @@ class DatabaseManager:
                 # Add folder filter if provided
                 folder_clause = ""
                 if folder_filter:
-                    if folder_filter.endswith("/Moffitt"):
-                        # Special case: search all Moffitt folders
-                        folder_clause = "AND d.folder_path LIKE '%/Moffitt' OR d.folder_path LIKE '%/Moffitt/%'"
-                    elif folder_filter == "Moffitt":
-                        # Search any folder containing Moffitt
-                        folder_clause = "AND d.folder_path LIKE '%Moffitt%'"
+                    # Check if this is a device filter (no slashes)
+                    if '/' not in folder_filter:
+                        folder_clause = "AND d.folder_path LIKE ?"
+                        params.append(f"{folder_filter}/%")
                     else:
-                        # Exact folder match
+                        # Normal folder filter
                         folder_clause = "AND d.folder_path = ?"
                         params.append(folder_filter)
                 
