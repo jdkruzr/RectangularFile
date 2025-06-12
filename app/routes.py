@@ -421,9 +421,9 @@ def register_routes(app):
 
     @app.route('/wordcloud')
     def wordcloud_page():
-        """Render the word cloud page."""
-        # Get folders for filtering
-        folders = []
+        """Render the word cloud page with cross-device folder grouping."""
+        # Get all folders for filtering
+        all_folders = []
         try:
             with app.db.get_connection() as conn:
                 cursor = conn.cursor()
@@ -433,11 +433,52 @@ def register_routes(app):
                     WHERE processing_status = 'completed'
                     ORDER BY folder_path
                 """)
-                folders = [row[0] for row in cursor.fetchall() if row[0]]
+                all_folders = [row[0] for row in cursor.fetchall() if row[0]]
         except Exception as e:
             app.logger.error(f"Error fetching folders: {e}")
         
-        return render_template('wordcloud.html', folders=folders)
+        # Group folders by common patterns
+        folder_categories = {}
+        device_folders = {}
+        
+        for folder in all_folders:
+            # Skip empty folders
+            if not folder:
+                continue
+                
+            # Split the folder path into components
+            parts = folder.split('/')
+            
+            # Skip empty parts
+            if not parts or not parts[0]:
+                continue
+                
+            # First part is typically the device
+            device = parts[0]
+            if device not in device_folders:
+                device_folders[device] = []
+            device_folders[device].append(folder)
+            
+            # If there are at least 2 parts, the second part is often a category
+            if len(parts) >= 2:
+                category = parts[1]
+                category_key = f"All {category} folders"
+                if category_key not in folder_categories:
+                    folder_categories[category_key] = []
+                folder_categories[category_key].append(folder)
+            
+            # For specific use cases like "Moffitt"
+            if any('Moffitt' in part for part in parts):
+                if 'All Moffitt folders' not in folder_categories:
+                    folder_categories['All Moffitt folders'] = []
+                folder_categories['All Moffitt folders'].append(folder)
+        
+        return render_template(
+            'wordcloud.html', 
+            all_folders=all_folders,
+            folder_categories=folder_categories,
+            device_folders=device_folders
+        )
 
     @app.route('/generate_wordcloud')
     def generate_wordcloud_image():
