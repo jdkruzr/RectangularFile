@@ -593,66 +593,155 @@ def register_routes(app):
         device = request.args.get('device', '')
         category = request.args.get('category', '')
         
+        app.logger.info(f"Generating word cloud for - Category: {category}, Device: {device}, Folder: {folder}")
+        
         try:
             texts = []
             
             # If a specific category is selected, get texts from all matching folders
             if category:
-                # Fetch all folders containing this category
+                app.logger.info(f"Finding folders matching category: {category}")
+                
+                # First, get all folders
                 with app.db.get_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("""
                         SELECT DISTINCT folder_path 
                         FROM pdf_documents 
-                        WHERE folder_path LIKE ? OR folder_path LIKE ?
-                    """, (f"{category}%", f"%/{category}/%"))
+                        WHERE processing_status = 'completed'
+                    """)
+                    all_folders = [row[0] for row in cursor.fetchall() if row[0]]
                     
-                    matching_folders = [row[0] for row in cursor.fetchall() if row[0]]
+                # Find folders that contain the category as a path component
+                matching_folders = []
+                for folder_path in all_folders:
+                    if not folder_path:
+                        continue
+                        
+                    # Add more ways to match the category
+                    path_parts = folder_path.split('/')
                     
-                    # Get texts from all matching folders
-                    for matching_folder in matching_folders:
-                        folder_texts = get_document_texts(app.db, doc_id=None, folder=matching_folder)
+                    # Match if the category appears as any path component
+                    if category in path_parts:
+                        matching_folders.append(folder_path)
+                        continue
+                        
+                    # Match if the category appears in any path component
+                    for part in path_parts:
+                        if category.lower() in part.lower():
+                            matching_folders.append(folder_path)
+                            break
+                
+                app.logger.info(f"Found {len(matching_folders)} matching folders for category '{category}': {matching_folders}")
+                
+                # Now get documents from each matching folder
+                for folder_path in matching_folders:
+                    # Get text directly from database for this folder
+                    with app.db.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT tc.text_content, tc.ocr_text
+                            FROM pdf_documents d
+                            JOIN pdf_text_content tc ON d.id = tc.pdf_id
+                            WHERE d.folder_path = ? AND d.processing_status = 'completed'
+                        """, (folder_path,))
+                        
+                        folder_texts = []
+                        for row in cursor.fetchall():
+                            # Prefer OCR text if available
+                            if row['ocr_text'] and row['ocr_text'].strip():
+                                folder_texts.append(row['ocr_text'])
+                            elif row['text_content'] and row['text_content'].strip():
+                                folder_texts.append(row['text_content'])
+                        
+                        app.logger.info(f"Found {len(folder_texts)} texts in folder {folder_path}")
                         texts.extend(folder_texts)
             
             # If a specific device is selected
             elif device:
-                # Get all folders for this device
+                app.logger.info(f"Finding folders for device: {device}")
+                # Use direct database query for device
                 with app.db.get_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("""
-                        SELECT DISTINCT folder_path 
-                        FROM pdf_documents 
-                        WHERE folder_path LIKE ?
+                        SELECT tc.text_content, tc.ocr_text
+                        FROM pdf_documents d
+                        JOIN pdf_text_content tc ON d.id = tc.pdf_id
+                        WHERE d.folder_path LIKE ? AND d.processing_status = 'completed'
                     """, (f"{device}/%",))
                     
-                    device_folders = [row[0] for row in cursor.fetchall() if row[0]]
+                    for row in cursor.fetchall():
+                        # Prefer OCR text if available
+                        if row['ocr_text'] and row['ocr_text'].strip():
+                            texts.append(row['ocr_text'])
+                        elif row['text_content'] and row['text_content'].strip():
+                            texts.append(row['text_content'])
                     
-                    # Get texts from all folders for this device
-                    for device_folder in device_folders:
-                        folder_texts = get_document_texts(app.db, doc_id=None, folder=device_folder)
-                        texts.extend(folder_texts)
+                    app.logger.info(f"Found {len(texts)} texts for device '{device}'")
             
             # If a specific folder is selected
             elif folder:
-                texts = get_document_texts(app.db, doc_id=None, folder=folder)
+                app.logger.info(f"Getting texts from specific folder: {folder}")
+                with app.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT tc.text_content, tc.ocr_text
+                        FROM pdf_documents d
+                        JOIN pdf_text_content tc ON d.id = tc.pdf_id
+                        WHERE d.folder_path = ? AND d.processing_status = 'completed'
+                    """, (folder,))
+                    
+                    for row in cursor.fetchall():
+                        # Prefer OCR text if available
+                        if row['ocr_text'] and row['ocr_text'].strip():
+                            texts.append(row['ocr_text'])
+                        elif row['text_content'] and row['text_content'].strip():
+                            texts.append(row['text_content'])
+                    
+                    app.logger.info(f"Found {len(texts)} texts in folder '{folder}'")
             
             # If no filters, get all texts
             else:
-                texts = get_document_texts(app.db, doc_id=None)
+                app.logger.info("Getting texts from all documents")
+                with app.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT tc.text_content, tc.ocr_text
+                        FROM pdf_documents d
+                        JOIN pdf_text_content tc ON d.id = tc.pdf_id
+                        WHERE d.processing_status = 'completed'
+                    """)
+                    
+                    for row in cursor.fetchall():
+                        # Prefer OCR text if available
+                        if row['ocr_text'] and row['ocr_text'].strip():
+                            texts.append(row['ocr_text'])
+                        elif row['text_content'] and row['text_content'].strip():
+                            texts.append(row['text_content'])
+                    
+                    app.logger.info(f"Found {len(texts)} texts across all documents")
+            
+            app.logger.info(f"Found {len(texts)} total texts for word cloud generation")
             
             if not texts:
+                app.logger.warning("No text found for the given filters")
                 return jsonify(error="No text found for the given filters"), 404
             
             # Process text
             processed_text = process_text_for_wordcloud(texts)
+            app.logger.info(f"Processed text length: {len(processed_text)} characters")
             
             # Generate word cloud
+            app.logger.info("Generating word cloud image")
             _, img_bytes = generate_wordcloud(processed_text)
+            app.logger.info("Word cloud image generated successfully")
             
             # Return image
             return send_file(img_bytes, mimetype='image/png')
         except Exception as e:
             app.logger.error(f"Error generating word cloud: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
             return jsonify(error=str(e)), 500
 
     @app.route('/document/<int:doc_id>')
