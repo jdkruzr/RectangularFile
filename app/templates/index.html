@@ -8,17 +8,123 @@
         color: #6c757d;
         font-size: 0.9em;
     }
+    
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 20px 0;
+    }
+    
+    .pagination-buttons {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .pagination-button {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .pagination-button:hover {
+        background-color: #e9ecef;
+    }
+    
+    .pagination-button.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    .pagination-info {
+        color: #6c757d;
+    }
+    
+    .sort-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    
+    .sort-label {
+        font-weight: bold;
+        color: #555;
+    }
+    
+    .sort-select {
+        padding: 5px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    
+    .order-button {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        width: 30px;
+        height: 30px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .order-button.asc:after {
+        content: "↑";
+    }
+    
+    .order-button.desc:after {
+        content: "↓";
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div id="notification"></div>
 
-<button id="scanButton" class="button">Scan Now</button>
+<div class="action-bar">
+    <button id="scanButton" class="button">Scan Now</button>
+</div>
 
 <h2>Files in monitored directory:</h2>
+
+<!-- Add sort controls -->
+<div class="sort-controls">
+    <span class="sort-label">Sort by:</span>
+    <select id="sortSelect" class="sort-select">
+        <option value="filename">Filename</option>
+        <option value="folder_path">Folder</option>
+        <option value="last_indexed">Date Added</option>
+        <option value="processing_status">Status</option>
+        <option value="file_size">File Size</option>
+    </select>
+    <button id="orderButton" class="order-button desc" title="Toggle sort order"></button>
+</div>
+
 <ul id="fileList">
 </ul>
+
+<!-- Add pagination controls -->
+<div class="pagination-controls">
+    <div class="pagination-buttons">
+        <button id="prevPageButton" class="pagination-button disabled">Previous</button>
+        <button id="nextPageButton" class="pagination-button">Next</button>
+    </div>
+    <div class="pagination-info">
+        Showing <span id="pageStart">1</span>-<span id="pageEnd">10</span> of <span id="totalItems">0</span> files
+    </div>
+    <div class="pagination-size">
+        <select id="pageSizeSelect">
+            <option value="10">10 per page</option>
+            <option value="25">25 per page</option>
+            <option value="50">50 per page</option>
+            <option value="100">100 per page</option>
+        </select>
+    </div>
+</div>
 
 <div class="queue-status-panel" id="queueStatus" style="display: none;">
     <h3>OCR Processing Queue</h3>
@@ -37,105 +143,90 @@
 
 {% block scripts %}
 <script>
-function createFileCard(file) {
-    const li = document.createElement('li');
-    const fileItem = document.createElement('div');
-    fileItem.className = 'file-item';
+    // Pagination and sorting state
+    const state = {
+        currentPage: 1,
+        pageSize: 10,
+        sortBy: 'last_indexed',
+        sortOrder: 'desc',
+        allFiles: [],
+        filteredFiles: []
+    };
 
-    // File name with cleaned folder path
-    const fileName = document.createElement('div');
-    fileName.className = 'file-name';
+    function createFileCard(file) {
+        const li = document.createElement('li');
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
 
-    // Extract just the base filename (the part after the last slash)
-    const baseName = file.filename.includes('/') ? 
-        file.filename.substring(file.filename.lastIndexOf('/') + 1) : 
-        file.filename;
-    
-    // Extract just the directory part
-    const dirPath = file.filename.includes('/') ? 
-        file.filename.substring(0, file.filename.lastIndexOf('/')) : 
-        '';
-    
-    // Clean up the directory path by removing redundancy
-    const dirParts = dirPath.split('/');
-    let cleanDirPath = '';
-    
-    // Build a clean path by removing adjacent duplicates
-    let lastPart = '';
-    for (const part of dirParts) {
-        if (part !== lastPart) {
-            if (cleanDirPath) cleanDirPath += '/';
-            cleanDirPath += part;
-            lastPart = part;
+        // File name with folder path
+        const fileName = document.createElement('div');
+        fileName.className = 'file-name';
+
+        // Show folder structure if available
+        if (file.folder_path && file.folder_path !== '') {
+            const folderSpan = document.createElement('span');
+            folderSpan.className = 'folder-path';
+            folderSpan.textContent = file.folder_path + '/';
+            fileName.appendChild(folderSpan);
         }
-    }
-    
-    // Show folder structure if available
-    if (cleanDirPath) {
-        const folderSpan = document.createElement('span');
-        folderSpan.className = 'folder-path';
-        folderSpan.textContent = cleanDirPath + '/';
-        fileName.appendChild(folderSpan);
-    }
 
-    // Add the base filename
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = baseName;
-    fileName.appendChild(nameSpan);
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = file.filename;
+        fileName.appendChild(nameSpan);
 
-    fileItem.appendChild(fileName);
+        fileItem.appendChild(fileName);
 
-    // File actions section
-    const fileActions = document.createElement('div');
-    fileActions.className = 'file-actions';
+        // File actions section
+        const fileActions = document.createElement('div');
+        fileActions.className = 'file-actions';
 
-    // Status badge if available
-    if (file.in_database && file.processing_status) {
-        const statusBadge = document.createElement('span');
-        statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
-        statusBadge.textContent = file.processing_status;
-        fileActions.appendChild(statusBadge);
+        // Status badge if available
+        if (file.in_database && file.processing_status) {
+            const statusBadge = document.createElement('span');
+            statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
+            statusBadge.textContent = file.processing_status;
+            fileActions.appendChild(statusBadge);
 
-        // Progress bar for processing items
-        if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
-            const progressContainer = document.createElement('div');
-            progressContainer.className = 'progress-container';
+            // Progress bar for processing items
+            if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
+                const progressContainer = document.createElement('div');
+                progressContainer.className = 'progress-container';
 
-            const progressBar = document.createElement('div');
-            progressBar.className = 'progress-bar';
-            progressBar.style.width = `${file.processing_progress}%`;
+                const progressBar = document.createElement('div');
+                progressBar.className = 'progress-bar';
+                progressBar.style.width = `${file.processing_progress}%`;
 
-            progressContainer.appendChild(progressBar);
-            fileActions.appendChild(progressContainer);
+                progressContainer.appendChild(progressBar);
+                fileActions.appendChild(progressContainer);
+            }
         }
+
+        // Add a divider
+        const divider = document.createElement('span');
+        divider.className = 'divider';
+        divider.textContent = '|';
+        fileActions.appendChild(divider);
+
+        // Inspector button
+        if (file.in_database && file.id) {
+            const inspectBtn = document.createElement('a');
+            inspectBtn.className = 'inspect-button';
+            inspectBtn.textContent = 'Inspect';
+            inspectBtn.href = `/document/${file.id}`;
+            fileActions.appendChild(inspectBtn);
+        }
+
+        // Reset button
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'reset-button';
+        resetBtn.textContent = 'Reset';
+        resetBtn.onclick = () => resetProcessing(file.filename);
+        fileActions.appendChild(resetBtn);
+
+        fileItem.appendChild(fileActions);
+        li.appendChild(fileItem);
+        return li;
     }
-
-    // Add a divider
-    const divider = document.createElement('span');
-    divider.className = 'divider';
-    divider.textContent = '|';
-    fileActions.appendChild(divider);
-
-    // Inspector button
-    if (file.in_database && file.id) {
-        const inspectBtn = document.createElement('a');
-        inspectBtn.className = 'inspect-button';
-        inspectBtn.textContent = 'Inspect';
-        inspectBtn.href = `/document/${file.id}`;
-        fileActions.appendChild(inspectBtn);
-    }
-
-    // Reset button
-    const resetBtn = document.createElement('button');
-    resetBtn.className = 'reset-button';
-    resetBtn.textContent = 'Reset';
-    resetBtn.onclick = () => resetProcessing(file.filename);
-    fileActions.appendChild(resetBtn);
-
-    fileItem.appendChild(fileActions);
-    li.appendChild(fileItem);
-    return li;
-}
 
     function processOCR(docId) {
         fetch(`/ocr/${docId}`)
@@ -159,22 +250,148 @@ function createFileCard(file) {
             });
     }
 
+    function sortFiles(files, sortBy, sortOrder) {
+        return [...files].sort((a, b) => {
+            let comparison = 0;
+            
+            if (sortBy === 'filename') {
+                // Use base filename for sorting, ignoring folder path
+                comparison = a.base_filename.localeCompare(b.base_filename);
+            } else if (sortBy === 'folder_path') {
+                // Sort by folder path
+                const folderA = a.folder_path || '';
+                const folderB = b.folder_path || '';
+                comparison = folderA.localeCompare(folderB);
+            } else if (sortBy === 'last_indexed') {
+                // Sort by indexed date if available, newest first
+                const dateA = a.last_indexed ? new Date(a.last_indexed) : new Date(0);
+                const dateB = b.last_indexed ? new Date(b.last_indexed) : new Date(0);
+                comparison = dateB - dateA; // Default newest first
+            } else if (sortBy === 'processing_status') {
+                // Sort by processing status
+                const statusA = a.processing_status || '';
+                const statusB = b.processing_status || '';
+                comparison = statusA.localeCompare(statusB);
+            } else if (sortBy === 'file_size') {
+                // Sort by file size
+                const sizeA = a.file_size || 0;
+                const sizeB = b.file_size || 0;
+                comparison = sizeA - sizeB;
+            }
+            
+            // Reverse if descending order
+            return sortOrder === 'desc' ? -comparison : comparison;
+        });
+    }
+
+    function renderFileList() {
+        const startIndex = (state.currentPage - 1) * state.pageSize;
+        const endIndex = Math.min(startIndex + state.pageSize, state.filteredFiles.length);
+        
+        const fileList = document.getElementById('fileList');
+        fileList.innerHTML = '';
+        
+        // Slice the files for the current page
+        const currentPageFiles = state.filteredFiles.slice(startIndex, endIndex);
+        
+        // Render each file
+        currentPageFiles.forEach(file => {
+            const li = createFileCard(file);
+            fileList.appendChild(li);
+        });
+        
+        // Update pagination controls
+        updatePaginationControls();
+    }
+    
+    function updatePaginationControls() {
+        const totalFiles = state.filteredFiles.length;
+        const totalPages = Math.ceil(totalFiles / state.pageSize);
+        const startIndex = (state.currentPage - 1) * state.pageSize + 1;
+        const endIndex = Math.min(startIndex + state.pageSize - 1, totalFiles);
+        
+        // Update pagination info text
+        document.getElementById('pageStart').textContent = totalFiles > 0 ? startIndex : 0;
+        document.getElementById('pageEnd').textContent = endIndex;
+        document.getElementById('totalItems').textContent = totalFiles;
+        
+        // Update button states
+        const prevButton = document.getElementById('prevPageButton');
+        const nextButton = document.getElementById('nextPageButton');
+        
+        prevButton.classList.toggle('disabled', state.currentPage <= 1);
+        nextButton.classList.toggle('disabled', state.currentPage >= totalPages);
+    }
+
     function updateFileList() {
         fetch('/files')
             .then(response => response.json())
             .then(data => {
-                const fileList = document.getElementById('fileList');
-                fileList.innerHTML = '';
-
-                data.files.forEach(file => {
-                    const li = createFileCard(file);
-                    fileList.appendChild(li);
-                });
+                // Store all files
+                state.allFiles = data.files;
+                
+                // Sort the files
+                state.filteredFiles = sortFiles(state.allFiles, state.sortBy, state.sortOrder);
+                
+                // Render the current page
+                renderFileList();
             });
     }
 
-    // Initial file list update
-    updateFileList();
+    // Initialize UI elements
+    document.addEventListener('DOMContentLoaded', function() {
+        // Set up sort select
+        const sortSelect = document.getElementById('sortSelect');
+        sortSelect.value = state.sortBy;
+        sortSelect.addEventListener('change', function() {
+            state.sortBy = this.value;
+            state.filteredFiles = sortFiles(state.allFiles, state.sortBy, state.sortOrder);
+            state.currentPage = 1; // Reset to first page when sorting changes
+            renderFileList();
+        });
+        
+        // Set up sort order button
+        const orderButton = document.getElementById('orderButton');
+        orderButton.classList.add(state.sortOrder);
+        orderButton.addEventListener('click', function() {
+            // Toggle order
+            state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+            this.classList.remove('asc', 'desc');
+            this.classList.add(state.sortOrder);
+            
+            // Resort and render
+            state.filteredFiles = sortFiles(state.allFiles, state.sortBy, state.sortOrder);
+            renderFileList();
+        });
+        
+        // Set up page size select
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        pageSizeSelect.value = state.pageSize;
+        pageSizeSelect.addEventListener('change', function() {
+            state.pageSize = parseInt(this.value);
+            state.currentPage = 1; // Reset to first page when page size changes
+            renderFileList();
+        });
+        
+        // Set up pagination buttons
+        document.getElementById('prevPageButton').addEventListener('click', function() {
+            if (state.currentPage > 1) {
+                state.currentPage--;
+                renderFileList();
+            }
+        });
+        
+        document.getElementById('nextPageButton').addEventListener('click', function() {
+            const totalPages = Math.ceil(state.filteredFiles.length / state.pageSize);
+            if (state.currentPage < totalPages) {
+                state.currentPage++;
+                renderFileList();
+            }
+        });
+        
+        // Initial file list update
+        updateFileList();
+    });
 
     // Poll for new files every 5 seconds
     setInterval(function () {
