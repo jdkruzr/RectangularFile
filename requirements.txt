@@ -8,7 +8,7 @@ transformers
 bitsandbytes
 accelerate
 torchvision
-qwenvlutils
+qwen_vl_utils
 wordcloud
 matplotlib
 nltk
