@@ -530,15 +530,13 @@ def register_routes(app):
             for doc in pending_docs:
                 doc_id = doc['id']
                 
-                # Try different path variations
+                # Try different path variations - using dict access instead of .get()
+                folder_path = doc['folder_path'] if 'folder_path' in doc else ''
+                
                 potential_paths = [
                     Path(doc['relative_path']),
                     Path(os.path.join(app.config['UPLOAD_FOLDER'], doc['filename'])),
-                    Path(os.path.join(
-                        app.config['UPLOAD_FOLDER'], 
-                        doc.get('folder_path', ''), 
-                        doc['filename']
-                    ))
+                    Path(os.path.join(app.config['UPLOAD_FOLDER'], folder_path, doc['filename']))
                 ]
                 
                 filepath = None
@@ -548,6 +546,7 @@ def register_routes(app):
                         break
                         
                 if not filepath:
+                    app.logger.warning(f"Could not find file for document {doc_id}: {doc['filename']}")
                     failed_count += 1
                     continue
                     
@@ -568,6 +567,54 @@ def register_routes(app):
             )
                 
         except Exception as e:
+            app.logger.error(f"Error reprocessing pending documents: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
+            return jsonify(success=False, message=f"Error: {str(e)}"), 500
+            
+    @app.route('/fix_file/<path:filename>')
+    def fix_file(filename):
+        """Special endpoint to fix a specific file."""
+        try:
+            app.logger.info(f"Attempting to fix file: {filename}")
+            
+            # Get the full path
+            filepath = Path(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            base_filename = os.path.basename(filename)
+            
+            # Try to find in database by filename
+            doc_id = None
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+                result = cursor.fetchone()
+                if result:
+                    doc_id = result['id']
+            
+            if not doc_id:
+                # If not found, add to database
+                doc_id = app.db.add_document(filepath)
+                if not doc_id:
+                    return jsonify(success=False, message="Failed to add document to database"), 500
+            
+            # Reset status and force processing
+            app.db.reset_document_status_by_id(doc_id)
+            
+            # Process with text extraction
+            app.pdf_processor.process_document(filepath, doc_id, app.db)
+            
+            # Queue for OCR
+            app.ocr_queue.add_to_queue(doc_id, filepath)
+            
+            return jsonify(
+                success=True, 
+                message=f"File {base_filename} has been reset and queued for processing"
+            )
+        
+        except Exception as e:
+            app.logger.error(f"Error fixing file: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
             return jsonify(success=False, message=f"Error: {str(e)}"), 500
 
     return app
