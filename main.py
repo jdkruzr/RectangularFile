@@ -23,6 +23,34 @@ pdf_processor = PDFProcessor()
 ocr_processor = QwenVLProcessor()
 ocr_queue = OCRQueueManager(db, ocr_processor)
 
+# Define callbacks for file watching
+def process_new_file(relative_path):
+    """Process a newly detected file."""
+    filepath = Path(os.path.join(UPLOAD_FOLDER, relative_path))
+    print(f"Processing new file: {filepath}")
+    
+    # Add to database
+    doc_id = db.add_document(filepath)
+    if not doc_id:
+        print(f"Failed to add document to database: {filepath}")
+        return
+        
+    # Process with text extraction
+    pdf_processor.process_document(filepath, doc_id, db)
+    
+    # Queue for OCR processing
+    ocr_queue.add_to_queue(doc_id, filepath)
+
+def handle_removed_file(relative_path):
+    """Handle a file that's been removed."""
+    filepath = Path(os.path.join(UPLOAD_FOLDER, relative_path))
+    print(f"Marking removed file: {filepath}")
+    db.mark_document_removed(filepath)
+
+# Register callbacks with the file watcher
+file_watcher.register_callback(process_new_file)
+file_watcher.register_removal_callback(handle_removed_file)
+
 def cleanup():
     """Clean up resources before shutdown."""
     print("Shutting down application...")
@@ -48,5 +76,9 @@ app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue)
 if __name__ == '__main__':
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
+    
+    # Start file watching and OCR queue processing
+    file_watcher.start()
+    ocr_queue.start_processing()
     
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
