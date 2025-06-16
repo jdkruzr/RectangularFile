@@ -739,5 +739,34 @@ def register_routes(app):
             tb = traceback.format_exc()
             app.logger.error(f"Traceback: {tb}")
             return jsonify(success=False, message=f"Unexpected error: {str(e)}"), 500
-    
+
+    @app.route('/document/<int:doc_id>/annotations')
+    def document_annotations(doc_id):
+        """View annotations for a document."""
+        document = app.db.get_document_by_id(doc_id)
+        if not document:
+            return render_template('error.html', message="Document not found"), 404
+            
+        # Get annotations
+        annotations = []
+        try:
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, page_number, annotation_type, text, confidence, created_at
+                    FROM document_annotations
+                    WHERE doc_id = ?
+                    ORDER BY page_number, id
+                """, (doc_id,))
+                
+                annotations = [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            app.logger.error(f"Error fetching annotations: {e}")
+            
+        return render_template(
+            'document_annotations.html',
+            document=document,
+            annotations=annotations
+        )
+
     return app

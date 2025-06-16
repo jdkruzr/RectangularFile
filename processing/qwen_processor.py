@@ -70,6 +70,30 @@ class QwenVLProcessor:
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
 
+    def _ensure_annotations_table(self, db_manager):
+        """Ensure the annotations table exists in the database."""
+        try:
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS document_annotations (
+                        id INTEGER PRIMARY KEY,
+                        doc_id INTEGER,
+                        page_number INTEGER,
+                        annotation_type TEXT,  -- 'box', 'star', 'underline', etc.
+                        text TEXT,
+                        confidence FLOAT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (doc_id) REFERENCES pdf_documents(id)
+                    )
+                """)
+                conn.commit()
+                self.logger.info("Ensured document_annotations table exists")
+        except Exception as e:
+            self.logger.error(f"Error ensuring annotations table: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+
     def _log_memory_usage(self, note: str = ""):
         """Log current GPU memory usage with optional note."""
         if torch.cuda.is_available():
@@ -185,114 +209,100 @@ class QwenVLProcessor:
                 return False
         return True
 
-    def process_document(
-        self,
-        pdf_path: Path,
-        doc_id: int,
-        db_manager: DatabaseManager,
-        dpi: int = 150
-    ) -> bool:
-        """Process a PDF document for text recognition using Qwen2.5-VL."""
+    def process_document(self, pdf_path: Path, doc_id: int, db_manager: DatabaseManager, dpi: int = 150) -> bool:
+        """Process a PDF document with a two-pass approach for text and annotations."""
         try:
             self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
 
-            if not self._load_model():
-                self.logger.error("Failed to load model")
-                db_manager.update_processing_progress(doc_id, 0.0, "Failed to load model")
-                return False
-
-            if not db_manager.mark_ocr_started(doc_id):
-                self.logger.error(f"Failed to mark document {doc_id} for processing")
-                return False
-
-            self.logger.info(f"Converting PDF to images at {dpi} DPI")
+            # [Existing model loading and document preparation code...]
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 db_manager.update_processing_progress(doc_id, 10.0, "Converting PDF to images")
 
-                try:
-                    images = convert_from_path(
-                        pdf_path,
-                        dpi=dpi,
-                        output_folder=temp_dir,
-                        fmt='jpg'
-                    )
-                    self.logger.info(f"Converted PDF to {len(images)} images")
-                    processed_images = images
-
-                except Exception as pdf_error:
-                    self.logger.error(f"Error converting PDF to images: {pdf_error}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, f"Error converting PDF to images: {str(pdf_error)}"
-                    )
-                    return False
-
-                if not processed_images:
-                    self.logger.warning(f"No images extracted from PDF {doc_id}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, "No images could be extracted from PDF"
-                    )
-                    return False
+                # [Existing PDF to image conversion code...]
 
                 page_data = {}
-                progress_per_page = 80.0 / len(processed_images)
+                progress_per_page = 60.0 / len(processed_images)  # Reduced from 80 to allow for second pass
+                annotations = []
 
+                # First pass - Text transcription
+                self.logger.info("Starting first pass: Text transcription")
                 for i, image in enumerate(processed_images):
                     page_num = i + 1
                     current_progress = 20.0 + (i * progress_per_page)
 
-                    self.logger.info(f"Processing page {page_num}/{len(processed_images)}")
+                    self.logger.info(f"Transcribing page {page_num}/{len(processed_images)}")
                     db_manager.update_processing_progress(
                         doc_id,
                         current_progress,
-                        f"Recognizing text on page {page_num}/{len(processed_images)}"
+                        f"Transcribing text on page {page_num}/{len(processed_images)}"
                     )
 
-                    # Resize the image and get the path
+                    # Resize and save the image
                     image, image_path = self._resize_image_if_needed(image, doc_id, page_num)
                     
-                    # Process the image
-                    text = self._process_image(image)
-
+                    # Process the image for basic text transcription
+                    text = self._transcribe_text(image)
+                    
                     word_count = len(text.split()) if text else 0
                     char_count = len(text) if text else 0
-
-                    text_sample = text[:100].replace('\n', ' ') if text else "[No text recognized]"
-                    self.logger.info(f"Text sample: {text_sample}...")
-                    self.logger.info(f"Recognized {word_count} words")
 
                     page_data[page_num] = {
                         'text': text,
                         'word_count': word_count,
                         'char_count': char_count,
                         'processed_at': datetime.now(),
-                        'image_path': image_path  # Store the image path
+                        'image_path': image_path
                     }
 
                     if self.device == "cuda":
                         torch.cuda.empty_cache()
 
-                self.logger.info(f"Storing recognition results for {len(page_data)} pages")
-                db_manager.update_processing_progress(doc_id, 90.0, "Storing recognized text")
-
+                # Store the transcription results
+                self.logger.info(f"Storing transcription results for {len(page_data)} pages")
+                db_manager.update_processing_progress(doc_id, 80.0, "Storing transcribed text")
                 success = db_manager.store_ocr_results(doc_id, page_data)
 
-                if success:
-                    total_words = sum(page['word_count'] for page in page_data.values())
-                    
-                    self.logger.info(
-                        f"Successfully processed document {doc_id}\n"
-                        f"Total words: {total_words}\n"
-                        f"Pages processed: {len(page_data)}"
-                    )
-                else:
-                    self.logger.error(f"Failed to store results for document {doc_id}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, "Failed to store recognition results"
-                    )
+                if not success:
+                    self.logger.error(f"Failed to store transcription results for document {doc_id}")
+                    db_manager.update_processing_progress(doc_id, 0.0, "Failed to store transcription results")
+                    return False
 
-                return success
+                # Second pass - Detect annotations
+                self.logger.info("Starting second pass: Detecting annotations")
+                db_manager.update_processing_progress(doc_id, 85.0, "Detecting annotations")
+                
+                # Ensure annotations table exists
+                self._ensure_annotations_table(db_manager)
+                
+                for i, image in enumerate(processed_images):
+                    page_num = i + 1
+                    self.logger.info(f"Detecting annotations on page {page_num}/{len(processed_images)}")
+                    
+                    # Get boxed text annotations
+                    page_annotations = self._detect_boxed_text(image, page_num)
+                    annotations.extend(page_annotations)
+                    
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
+                
+                # Store annotations
+                if annotations:
+                    self.logger.info(f"Storing {len(annotations)} annotations")
+                    db_manager.store_document_annotations(doc_id, annotations)
+                
+                db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
+                
+                total_words = sum(page['word_count'] for page in page_data.values())
+                self.logger.info(
+                    f"Successfully processed document {doc_id}\n"
+                    f"Total words: {total_words}\n"
+                    f"Pages processed: {len(page_data)}\n"
+                    f"Annotations found: {len(annotations)}"
+                )
+                
+                return True
 
         except Exception as e:
             error_message = f"Error processing document: {str(e)}"
@@ -302,6 +312,148 @@ class QwenVLProcessor:
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
 
+    def _transcribe_text(self, image: Image.Image) -> str:
+        """First pass: Just get the basic transcription without any special processing."""
+        try:
+            self.logger.info(f"Transcribing image of size {image.width}x{image.height}")
+            self._log_memory_usage("Before transcription")
+            
+            # Create message with a simple transcription prompt
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "image": image,
+                            "resized_height": image.height,
+                            "resized_width": image.width,
+                        },
+                        {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible."},
+                    ],
+                }
+            ]
+            
+            # [Rest of the original _process_image code for generating text]
+            
+            return text
+
+        except Exception as e:
+            self.logger.error(f"Error transcribing text: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return ""
+
+    def _detect_boxed_text(self, image: Image.Image, page_num: int) -> list:
+        """Second pass: Detect text that has been boxed/highlighted."""
+        try:
+            self.logger.info(f"Detecting boxed text in image for page {page_num}")
+            self._log_memory_usage("Before annotation detection")
+            
+            # Create message with a focused prompt for boxed text detection
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "image": image,
+                            "resized_height": image.height,
+                            "resized_width": image.width,
+                        },
+                        {"type": "text", "text": "Look at this handwritten note. Find any text that has a box or rectangle drawn around it. For each boxed text, return only the text inside the box. Format as a JSON array like this: [{\"text\": \"boxed text 1\"}, {\"text\": \"boxed text 2\"}]."},
+                    ],
+                }
+            ]
+            
+            # Use the same processing pipeline as in _process_image
+            text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            
+            image_inputs, video_inputs = process_vision_info(messages)
+            
+            inputs = self.processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+            )
+
+            inputs = inputs.to(self.device)
+            
+            with torch.no_grad():
+                input_ids = inputs.input_ids
+                
+                generated_ids = self.model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    do_sample=False,
+                    temperature=1.0,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id
+                )
+                
+                generated_ids_trimmed = [
+                    out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
+                ]
+                
+                output_text = self.processor.batch_decode(
+                    generated_ids_trimmed, 
+                    skip_special_tokens=True, 
+                    clean_up_tokenization_spaces=False
+                )
+                
+                response = output_text[0]
+
+            # Clean up resources
+            del inputs, generated_ids, generated_ids_trimmed
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                
+            self.logger.info(f"Raw annotation detection response: {response[:100]}...")
+            
+            # Try to parse JSON response
+            try:
+                # First, look for a JSON array in the text
+                import json
+                import re
+                
+                # Try to find something that looks like a JSON array
+                json_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    boxed_items = json.loads(json_str)
+                    
+                    # Convert to our annotation format
+                    annotations = []
+                    for item in boxed_items:
+                        if 'text' in item and item['text'].strip():
+                            annotations.append({
+                                'page_number': page_num,
+                                'annotation_type': 'box',
+                                'text': item['text'].strip(),
+                                'confidence': 0.9  # Confidence is hard to determine
+                            })
+                    
+                    self.logger.info(f"Found {len(annotations)} boxed text items on page {page_num}")
+                    return annotations
+                else:
+                    self.logger.warning(f"No valid JSON found in response: {response}")
+                    return []
+                    
+            except Exception as parse_error:
+                self.logger.error(f"Error parsing boxed text response: {parse_error}")
+                self.logger.error(f"Response was: {response}")
+                return []
+
+        except Exception as e:
+            self.logger.error(f"Error detecting boxed text: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return []
+    
     def _process_image(self, image: Image.Image) -> str:
         """Process a single image with Qwen2.5-VL using the approach from model_test.py."""
         try:

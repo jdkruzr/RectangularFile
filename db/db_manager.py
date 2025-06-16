@@ -177,6 +177,51 @@ class DatabaseManager:
             self.logger.error(f"Error adding document {filepath}: {e}")
             return None
 
+    def store_document_annotations(self, doc_id: int, annotations: list) -> bool:
+        """Store annotations for a document."""
+        try:
+            # First, ensure the table exists
+            cursor = self.get_connection().cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS document_annotations (
+                    id INTEGER PRIMARY KEY,
+                    doc_id INTEGER,
+                    page_number INTEGER,
+                    annotation_type TEXT,
+                    text TEXT,
+                    confidence FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (doc_id) REFERENCES pdf_documents(id)
+                )
+            """)
+            
+            for annotation in annotations:
+                cursor.execute("""
+                    INSERT INTO document_annotations (
+                        doc_id, 
+                        page_number, 
+                        annotation_type, 
+                        text,
+                        confidence
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    doc_id,
+                    annotation['page_number'],
+                    annotation['annotation_type'],
+                    annotation['text'],
+                    annotation.get('confidence', 0.0)
+                ))
+            
+            self.get_connection().commit()
+            self.logger.info(f"Stored {len(annotations)} annotations for document {doc_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error storing annotations for document {doc_id}: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
+
     def mark_document_removed(self, filepath: Path) -> bool:
         try:
             # Use absolute path
