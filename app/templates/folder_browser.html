@@ -104,6 +104,7 @@
             {% endif %}
         </div>
         
+        <!-- Inside the files loop -->
         {% if files %}
             <ul id="fileList">
                 {% for file in files %}
@@ -124,6 +125,12 @@
                                 <a href="/document/{{ file.id }}" class="inspect-button">View</a>
                                 
                                 <button class="reset-button" onclick="resetProcessing('{{ file.id }}')">Reset</button>
+                                
+                                {% if file.filename.endswith('.html') or file.filename.endswith('.htm') %}
+                                    <button class="fix-button fix-html-button" onclick="fixHtmlFile('{{ file.relative_path }}')">Fix HTML</button>
+                                {% elif file.filename.endswith('.pdf') %}
+                                    <button class="fix-button fix-pdf-button" onclick="fixPdfFile('{{ file.relative_path }}')">Fix PDF</button>
+                                {% endif %}
                             </div>
                         </div>
                     </li>
@@ -137,6 +144,7 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- Update the file-item section to include fix buttons -->
 <script>
     function resetProcessing(docId) {
         fetch(`/reset/${docId}`)
@@ -151,6 +159,40 @@
             })
             .catch(error => {
                 console.error("Reset error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+    
+    function fixHtmlFile(filename) {
+        fetch(`/fix_html_file?path=${encodeURIComponent(filename)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert("HTML file processed successfully");
+                    location.reload();
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix HTML error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+    
+    function fixPdfFile(filename) {
+        fetch(`/fix_pdf_file?path=${encodeURIComponent(filename)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert("PDF file queued for processing");
+                    location.reload();
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix PDF error:", error);
                 alert(`Error: ${error}`);
             });
     }

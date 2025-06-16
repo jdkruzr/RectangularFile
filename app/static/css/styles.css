@@ -338,3 +338,31 @@ input[type="number"], input[type="text"], select {
     padding-bottom: 20px;
     border-bottom: 1px solid #eee;
 }
+
+/* Fix button styles */
+.fix-button {
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    margin-right: 10px;
+    font-size: 0.9em;
+    text-decoration: none;
+}
+
+.fix-html-button {
+    color: #9c27b0; /* Purple for HTML */
+}
+
+.fix-html-button:hover {
+    color: #7b1fa2;
+    text-decoration: underline;
+}
+
+.fix-pdf-button {
+    color: #e91e63; /* Pink for PDF */
+}
+
+.fix-pdf-button:hover {
+    color: #c2185b;
+    text-decoration: underline;
+}

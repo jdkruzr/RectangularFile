@@ -657,5 +657,94 @@ def register_routes(app):
             import traceback
             app.logger.error(traceback.format_exc())
             return jsonify(success=False, message=f"Error: {str(e)}"), 500
+        
+    @app.route('/fix_html_file')
+    def fix_html_file():
+        """Fix an HTML file that might be in a bad state."""
+        try:
+            file_path = request.args.get('path')
+            if not file_path:
+                return jsonify(success=False, message="No file path provided"), 400
+                
+            # Get the full path
+            filepath = Path(os.path.join(app.config['UPLOAD_FOLDER'], file_path))
+            
+            if not filepath.exists():
+                return jsonify(success=False, message="File not found"), 404
+                
+            # Get document by filename
+            base_filename = os.path.basename(file_path)
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+                result = cursor.fetchone()
+                
+            if not result:
+                # Add to database if not found
+                doc_id = app.db.add_document(filepath)
+                if not doc_id:
+                    return jsonify(success=False, message="Failed to add document to database"), 500
+            else:
+                doc_id = result['id']
+                
+            # Reset status
+            app.db.reset_document_status_by_id(doc_id)
+            
+            # Process with HTML processor
+            if hasattr(app, 'html_processor') and app.html_processor:
+                app.html_processor.process_document(filepath, doc_id, app.db)
+                return jsonify(success=True, message=f"HTML file processed: {base_filename}")
+            else:
+                return jsonify(success=False, message="HTML processor not available"), 500
+                
+        except Exception as e:
+            app.logger.error(f"Error fixing HTML file: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
+            return jsonify(success=False, message=f"Error: {str(e)}"), 500
+
+    @app.route('/fix_pdf_file')
+    def fix_pdf_file():
+        """Fix a PDF file that might be in a bad state."""
+        try:
+            file_path = request.args.get('path')
+            if not file_path:
+                return jsonify(success=False, message="No file path provided"), 400
+                
+            # Get the full path
+            filepath = Path(os.path.join(app.config['UPLOAD_FOLDER'], file_path))
+            
+            if not filepath.exists():
+                return jsonify(success=False, message="File not found"), 404
+                
+            # Get document by filename
+            base_filename = os.path.basename(file_path)
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+                result = cursor.fetchone()
+                
+            if not result:
+                # Add to database if not found
+                doc_id = app.db.add_document(filepath)
+                if not doc_id:
+                    return jsonify(success=False, message="Failed to add document to database"), 500
+            else:
+                doc_id = result['id']
+                
+            # Reset status
+            app.db.reset_document_status_by_id(doc_id)
+            
+            # Process with PDF processor and OCR
+            app.pdf_processor.process_document(filepath, doc_id, app.db)
+            app.ocr_queue.add_to_queue(doc_id, filepath)
+                
+            return jsonify(success=True, message=f"PDF file queued for processing: {base_filename}")
+                
+        except Exception as e:
+            app.logger.error(f"Error fixing PDF file: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
+            return jsonify(success=False, message=f"Error: {str(e)}"), 500
 
     return app

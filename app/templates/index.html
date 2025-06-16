@@ -79,6 +79,34 @@
     .order-button.desc:after {
         content: "↓";
     }
+    
+    /* Fix button styles */
+    .fix-button {
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+        margin-right: 10px;
+        font-size: 0.9em;
+        text-decoration: none;
+    }
+    
+    .fix-html-button {
+        color: #9c27b0; /* Purple for HTML */
+    }
+    
+    .fix-html-button:hover {
+        color: #7b1fa2;
+        text-decoration: underline;
+    }
+    
+    .fix-pdf-button {
+        color: #e91e63; /* Pink for PDF */
+    }
+    
+    .fix-pdf-button:hover {
+        color: #c2185b;
+        text-decoration: underline;
+    }
 </style>
 {% endblock %}
 
@@ -223,9 +251,74 @@
         resetBtn.onclick = () => resetProcessing(file.filename);
         fileActions.appendChild(resetBtn);
 
+        // Add special Fix buttons based on file type
+        const fileExt = file.filename.split('.').pop().toLowerCase();
+        if (fileExt === 'html' || fileExt === 'htm') {
+            const fixHtmlBtn = document.createElement('button');
+            fixHtmlBtn.className = 'fix-button fix-html-button';
+            fixHtmlBtn.textContent = 'Fix HTML';
+            fixHtmlBtn.onclick = () => fixHtmlFile(file.filename);
+            fileActions.appendChild(fixHtmlBtn);
+        } else if (fileExt === 'pdf') {
+            const fixPdfBtn = document.createElement('button');
+            fixPdfBtn.className = 'fix-button fix-pdf-button';
+            fixPdfBtn.textContent = 'Fix PDF';
+            fixPdfBtn.onclick = () => fixPdfFile(file.filename);
+            fileActions.appendChild(fixPdfBtn);
+        }
+
         fileItem.appendChild(fileActions);
         li.appendChild(fileItem);
         return li;
+    }
+
+    // Add these functions to handle the fix buttons
+    function fixHtmlFile(fullPath) {
+        console.log(`Fixing HTML file: ${fullPath}`);
+        
+        fetch(`/fix_html_file?path=${encodeURIComponent(fullPath)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    updateFileList();
+                    const notification = document.getElementById('notification');
+                    notification.textContent = result.message;
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix HTML error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+
+    function fixPdfFile(fullPath) {
+        console.log(`Fixing PDF file: ${fullPath}`);
+        
+        fetch(`/fix_pdf_file?path=${encodeURIComponent(fullPath)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    updateFileList();
+                    const notification = document.getElementById('notification');
+                    notification.textContent = result.message;
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix PDF error:", error);
+                alert(`Error: ${error}`);
+            });
     }
 
     function processOCR(docId) {
@@ -335,6 +428,46 @@
                 
                 // Render the current page
                 renderFileList();
+            });
+    }
+
+    function resetProcessing(fullPath) {
+        console.log(`Resetting file: ${fullPath}`);
+
+        // First get the file's ID
+        fetch('/files')
+            .then(response => response.json())
+            .then(data => {
+                const fileInfo = data.files.find(f => f.filename === fullPath);
+
+                if (fileInfo && fileInfo.id) {
+                    // Use the full path to reset
+                    fetch(`/reset_file?path=${encodeURIComponent(fullPath)}`)
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success) {
+                                updateFileList();
+                                const notification = document.getElementById('notification');
+                                notification.textContent = result.message;
+                                notification.style.display = 'block';
+                                setTimeout(() => {
+                                    notification.style.display = 'none';
+                                }, 3000);
+                            } else {
+                                alert(`Error: ${result.message}`);
+                            }
+                        })
+                        .catch(error => {
+                            console.error("Reset error:", error);
+                            alert(`Error: ${error}`);
+                        });
+                } else {
+                    alert('File not in database yet or ID not found');
+                }
+            })
+            .catch(error => {
+                console.error("Files fetch error:", error);
+                alert(`Error fetching file data: ${error}`);
             });
     }
 
@@ -453,46 +586,6 @@
                 this.disabled = false;
             });
     });
-
-    function resetProcessing(fullPath) {
-        console.log(`Resetting file: ${fullPath}`);
-
-        // First get the file's ID
-        fetch('/files')
-            .then(response => response.json())
-            .then(data => {
-                const fileInfo = data.files.find(f => f.filename === fullPath);
-
-                if (fileInfo && fileInfo.id) {
-                    // Use the full path to reset
-                    fetch(`/reset_file?path=${encodeURIComponent(fullPath)}`)
-                        .then(response => response.json())
-                        .then(result => {
-                            if (result.success) {
-                                updateFileList();
-                                const notification = document.getElementById('notification');
-                                notification.textContent = result.message;
-                                notification.style.display = 'block';
-                                setTimeout(() => {
-                                    notification.style.display = 'none';
-                                }, 3000);
-                            } else {
-                                alert(`Error: ${result.message}`);
-                            }
-                        })
-                        .catch(error => {
-                            console.error("Reset error:", error);
-                            alert(`Error: ${error}`);
-                        });
-                } else {
-                    alert('File not in database yet or ID not found');
-                }
-            })
-            .catch(error => {
-                console.error("Files fetch error:", error);
-                alert(`Error fetching file data: ${error}`);
-            });
-    }
 
     // Update queue status every 3 seconds
     setInterval(function () {
