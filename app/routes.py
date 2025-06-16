@@ -571,94 +571,173 @@ def register_routes(app):
             import traceback
             app.logger.error(traceback.format_exc())
             return jsonify(success=False, message=f"Error: {str(e)}"), 500
-                    
+                        
     @app.route('/fix_html_file')
     def fix_html_file():
         """Fix an HTML file that might be in a bad state."""
         try:
             file_path = request.args.get('path')
+            app.logger.info(f"Fix HTML file request received for: {file_path}")
+            
             if not file_path:
                 return jsonify(success=False, message="No file path provided"), 400
-                
+            
             # Get the full path
             filepath = Path(os.path.join(app.config['UPLOAD_FOLDER'], file_path))
+            app.logger.info(f"Full path: {filepath}")
             
             if not filepath.exists():
-                return jsonify(success=False, message="File not found"), 404
-                
+                app.logger.error(f"File not found at path: {filepath}")
+                return jsonify(success=False, message=f"File not found at: {filepath}"), 404
+            
             # Get document by filename
             base_filename = os.path.basename(file_path)
-            with app.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
-                result = cursor.fetchone()
-                
-            if not result:
+            app.logger.info(f"Base filename: {base_filename}")
+            
+            try:
+                with app.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        doc_id = result['id']
+                        app.logger.info(f"Found existing document with ID: {doc_id}")
+                    else:
+                        doc_id = None
+                        app.logger.info("Document not found in database")
+            except Exception as db_error:
+                app.logger.error(f"Database error while looking up document: {db_error}")
+                return jsonify(success=False, message=f"Database error: {str(db_error)}"), 500
+            
+            if not doc_id:
                 # Add to database if not found
-                doc_id = app.db.add_document(filepath)
-                if not doc_id:
-                    return jsonify(success=False, message="Failed to add document to database"), 500
-            else:
-                doc_id = result['id']
-                
+                try:
+                    doc_id = app.db.add_document(filepath)
+                    app.logger.info(f"Added document to database with ID: {doc_id}")
+                    if not doc_id:
+                        app.logger.error("Failed to add document to database")
+                        return jsonify(success=False, message="Failed to add document to database"), 500
+                except Exception as add_error:
+                    app.logger.error(f"Error adding document to database: {add_error}")
+                    return jsonify(success=False, message=f"Error adding document: {str(add_error)}"), 500
+            
             # Reset status
-            app.db.reset_document_status_by_id(doc_id)
+            try:
+                if not app.db.reset_document_status_by_id(doc_id):
+                    app.logger.error(f"Failed to reset document status for ID: {doc_id}")
+                    return jsonify(success=False, message="Failed to reset document status"), 500
+                app.logger.info(f"Reset document status for ID: {doc_id}")
+            except Exception as reset_error:
+                app.logger.error(f"Error resetting document status: {reset_error}")
+                return jsonify(success=False, message=f"Error resetting status: {str(reset_error)}"), 500
             
             # Process with HTML processor
             if hasattr(app, 'html_processor') and app.html_processor:
-                app.html_processor.process_document(filepath, doc_id, app.db)
-                return jsonify(success=True, message=f"HTML file processed: {base_filename}")
+                try:
+                    app.html_processor.process_document(filepath, doc_id, app.db)
+                    app.logger.info(f"Processed document with HTML processor: {doc_id}")
+                    return jsonify(success=True, message=f"HTML file processed: {base_filename}")
+                except Exception as html_error:
+                    app.logger.error(f"Error processing HTML: {html_error}")
+                    return jsonify(success=False, message=f"Error processing HTML: {str(html_error)}"), 500
             else:
+                app.logger.error("HTML processor not available")
                 return jsonify(success=False, message="HTML processor not available"), 500
-                
+            
         except Exception as e:
-            app.logger.error(f"Error fixing HTML file: {e}")
+            app.logger.error(f"Unexpected error fixing HTML file: {e}")
             import traceback
-            app.logger.error(traceback.format_exc())
-            return jsonify(success=False, message=f"Error: {str(e)}"), 500
+            tb = traceback.format_exc()
+            app.logger.error(f"Traceback: {tb}")
+            return jsonify(success=False, message=f"Unexpected error: {str(e)}"), 500
 
     @app.route('/fix_pdf_file')
     def fix_pdf_file():
         """Fix a PDF file that might be in a bad state."""
         try:
             file_path = request.args.get('path')
+            app.logger.info(f"Fix PDF file request received for: {file_path}")
+            
             if not file_path:
                 return jsonify(success=False, message="No file path provided"), 400
-                
+            
             # Get the full path
             filepath = Path(os.path.join(app.config['UPLOAD_FOLDER'], file_path))
+            app.logger.info(f"Full path: {filepath}")
             
             if not filepath.exists():
-                return jsonify(success=False, message="File not found"), 404
-                
+                app.logger.error(f"File not found at path: {filepath}")
+                return jsonify(success=False, message=f"File not found at: {filepath}"), 404
+            
             # Get document by filename
             base_filename = os.path.basename(file_path)
-            with app.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
-                result = cursor.fetchone()
-                
-            if not result:
-                # Add to database if not found
-                doc_id = app.db.add_document(filepath)
-                if not doc_id:
-                    return jsonify(success=False, message="Failed to add document to database"), 500
-            else:
-                doc_id = result['id']
-                
-            # Reset status
-            app.db.reset_document_status_by_id(doc_id)
+            app.logger.info(f"Base filename: {base_filename}")
             
-            # Process with PDF processor and OCR
-            app.pdf_processor.process_document(filepath, doc_id, app.db)
-            app.ocr_queue.add_to_queue(doc_id, filepath)
-                
+            try:
+                with app.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        doc_id = result['id']
+                        app.logger.info(f"Found existing document with ID: {doc_id}")
+                    else:
+                        doc_id = None
+                        app.logger.info("Document not found in database")
+            except Exception as db_error:
+                app.logger.error(f"Database error while looking up document: {db_error}")
+                return jsonify(success=False, message=f"Database error: {str(db_error)}"), 500
+            
+            if not doc_id:
+                # Add to database if not found
+                try:
+                    doc_id = app.db.add_document(filepath)
+                    app.logger.info(f"Added document to database with ID: {doc_id}")
+                    if not doc_id:
+                        app.logger.error("Failed to add document to database")
+                        return jsonify(success=False, message="Failed to add document to database"), 500
+                except Exception as add_error:
+                    app.logger.error(f"Error adding document to database: {add_error}")
+                    return jsonify(success=False, message=f"Error adding document: {str(add_error)}"), 500
+            
+            # Reset status
+            try:
+                if not app.db.reset_document_status_by_id(doc_id):
+                    app.logger.error(f"Failed to reset document status for ID: {doc_id}")
+                    return jsonify(success=False, message="Failed to reset document status"), 500
+                app.logger.info(f"Reset document status for ID: {doc_id}")
+            except Exception as reset_error:
+                app.logger.error(f"Error resetting document status: {reset_error}")
+                return jsonify(success=False, message=f"Error resetting status: {str(reset_error)}"), 500
+            
+            # Process with PDF processor
+            try:
+                app.pdf_processor.process_document(filepath, doc_id, app.db)
+                app.logger.info(f"Processed document with PDF processor: {doc_id}")
+            except Exception as pdf_error:
+                app.logger.error(f"Error processing PDF: {pdf_error}")
+                return jsonify(success=False, message=f"Error processing PDF: {str(pdf_error)}"), 500
+            
+            # Queue for OCR
+            try:
+                if not app.ocr_queue.add_to_queue(doc_id, filepath):
+                    app.logger.error(f"Failed to add document to OCR queue: {doc_id}")
+                    return jsonify(success=False, message="Failed to add to OCR queue"), 500
+                app.logger.info(f"Added document to OCR queue: {doc_id}")
+            except Exception as ocr_error:
+                app.logger.error(f"Error adding to OCR queue: {ocr_error}")
+                return jsonify(success=False, message=f"Error adding to OCR queue: {str(ocr_error)}"), 500
+            
+            app.logger.info(f"Successfully processed PDF file: {base_filename}")
             return jsonify(success=True, message=f"PDF file queued for processing: {base_filename}")
-                
+            
         except Exception as e:
-            app.logger.error(f"Error fixing PDF file: {e}")
+            app.logger.error(f"Unexpected error fixing PDF file: {e}")
             import traceback
-            app.logger.error(traceback.format_exc())
-            return jsonify(success=False, message=f"Error: {str(e)}"), 500
-
+            tb = traceback.format_exc()
+            app.logger.error(f"Traceback: {tb}")
+            return jsonify(success=False, message=f"Unexpected error: {str(e)}"), 500
+    
     return app
