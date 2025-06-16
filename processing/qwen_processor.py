@@ -168,15 +168,19 @@ class QwenVLProcessor:
 
                 # Optimize model loading based on device
                 if self.device == "cuda":
-                    self.logger.info("Loading model with INT8 quantization")
+                    self.logger.info("Loading model with INT8 quantization and memory efficiency")
                     quantization_config = BitsAndBytesConfig(
                         load_in_8bit=True,
-                        llm_int8_threshold=6.0
+                        llm_int8_threshold=6.0,
+                        llm_int8_skip_modules=None,
+                        llm_int8_enable_fp32_cpu_offload=True
                     )
                     model_kwargs = {
                         "device_map": "auto",
                         "trust_remote_code": True,
-                        "quantization_config": quantization_config
+                        "quantization_config": quantization_config,
+                        "max_memory": {0: "10GiB"},  # Limit to 10GB VRAM usage
+                        "offload_folder": "offload_folder"
                     }
                 else:
                     self.logger.info("Loading model for CPU inference")
@@ -300,6 +304,18 @@ class QwenVLProcessor:
                     self.logger.error(f"Failed to store transcription results for document {doc_id}")
                     db_manager.update_processing_progress(doc_id, 0.0, "Failed to store transcription results")
                     return False
+
+                if self.device == "cuda":
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    self._log_memory_usage("After first pass cleanup")
+                    
+                    # If still low on memory, try to force Python garbage collection
+                    import gc
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    self._log_memory_usage("After garbage collection")
 
                 # Second pass - Detect annotations
                 self.logger.info("Starting second pass: Detecting annotations")

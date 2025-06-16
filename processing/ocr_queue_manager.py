@@ -101,9 +101,32 @@ class OCRQueueManager:
                     doc_id, 5.0, "Queued for OCR processing"
                 )
                 
+                # Add this to force memory cleanup before processing each document
+                if hasattr(self.ocr_processor, 'device') and self.ocr_processor.device == 'cuda':
+                    import torch
+                    import gc
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    
                 # Process the document with OCR
-                success = self.ocr_processor.process_document(filepath, doc_id, self.db_manager)
+                # Add detect_annotations=True/False here based on GPU memory situation
+                # You could check available memory and decide whether to run annotation detection
                 
+                import torch
+                if torch.cuda.is_available():
+                    free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved()
+                    free_memory_gb = free_memory / (1024**3)
+                    
+                    # Only run annotation detection if we have enough free memory
+                    detect_annotations = free_memory_gb > 6.0  # Need at least 6GB free
+                    self.logger.info(f"Free GPU memory: {free_memory_gb:.2f} GB, running annotation detection: {detect_annotations}")
+                else:
+                    detect_annotations = True
+                    
+                success = self.ocr_processor.process_document(
+                    filepath, doc_id, self.db_manager, detect_annotations=detect_annotations
+                )
+                            
                 if success:
                     self.logger.info(f"Successfully completed OCR for document {doc_id}")
                 else:
