@@ -30,21 +30,32 @@ class HTMLProcessor:
         try:
             self.logger.info(f"Processing HTML document: {html_path}")
             
+            if not html_path.exists():
+                self.logger.error(f"HTML file not found: {html_path}")
+                db_manager.update_processing_progress(doc_id, 0.0, "HTML file not found")
+                return False
+                
             if not db_manager.mark_text_extraction_started(doc_id):
                 self.logger.error("Failed to mark document as processing")
                 return False
             
             db_manager.update_processing_progress(doc_id, 10.0, "Extracting HTML content")
             
-            # Read the HTML file
-            with open(html_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
+            # Read the HTML file with error handling
+            try:
+                with open(html_path, 'r', encoding='utf-8', errors='replace') as f:
+                    html_content = f.read()
+            except Exception as e:
+                self.logger.error(f"Error reading HTML file: {e}")
+                db_manager.update_processing_progress(doc_id, 0.0, f"Error reading HTML: {str(e)}")
+                return False
             
             # Parse with BeautifulSoup
             soup = BeautifulSoup(html_content, 'html.parser')
             
             # Extract title if available
             title = soup.title.string if soup.title else os.path.basename(html_path)
+            self.logger.info(f"Title: {title}")
             
             # Extract body text, removing script and style elements
             for script in soup(["script", "style"]):
@@ -56,12 +67,12 @@ class HTMLProcessor:
             chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
             text = '\n'.join(chunk for chunk in chunks if chunk)
             
-            # Extract metadata if available (device-specific)
-            metadata = self._extract_metadata(soup, html_path)
+            self.logger.info(f"Extracted {len(text)} characters of text from HTML")
             
             # Calculate word count
             words = re.findall(r'\w+', text)
             word_count = len(words)
+            self.logger.info(f"Word count: {word_count}")
             
             # Update progress
             db_manager.update_processing_progress(doc_id, 50.0, "Processing content")
@@ -72,9 +83,7 @@ class HTMLProcessor:
                     'text': text,
                     'word_count': word_count,
                     'char_count': len(text),
-                    'processed_at': datetime.now(),
-                    'title': title,
-                    'metadata': metadata
+                    'processed_at': datetime.now()
                 }
             }
             
@@ -97,7 +106,7 @@ class HTMLProcessor:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
-    
+            
     def _extract_metadata(self, soup: BeautifulSoup, html_path: Path) -> Dict:
         """
         Extract metadata from the HTML document.

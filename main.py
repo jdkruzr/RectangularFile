@@ -31,11 +31,35 @@ def process_new_file(relative_path):
     filepath = Path(os.path.join(UPLOAD_FOLDER, relative_path))
     print(f"Processing new file: {filepath}")
     
-    # Add to database
-    doc_id = db.add_document(filepath)
-    if not doc_id:
-        print(f"Failed to add document to database: {filepath}")
+    # Check if this file is already in the database
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Try to find by relative path or filename
+        filename = filepath.name
+        cursor.execute("""
+            SELECT id, processing_status FROM pdf_documents 
+            WHERE relative_path = ? OR filename = ?
+        """, (str(filepath.absolute()), filename))
+        
+        existing = cursor.fetchone()
+    
+    # If already in database and completed, skip processing
+    if existing and existing['processing_status'] == 'completed':
+        print(f"File already processed: {filepath}")
         return
+    
+    # If in database but not completed, reset and process
+    if existing:
+        doc_id = existing['id']
+        print(f"Resetting existing document: {doc_id}")
+        db.reset_document_status_by_id(doc_id)
+    else:
+        # Add to database if not found
+        doc_id = db.add_document(filepath)
+        if not doc_id:
+            print(f"Failed to add document to database: {filepath}")
+            return
     
     # Choose processor based on file extension
     file_extension = filepath.suffix.lower()
@@ -43,14 +67,9 @@ def process_new_file(relative_path):
     # Process based on file type
     if file_extension in ['.html', '.htm']:
         print(f"Processing HTML file: {filepath}")
-        # Use HTML processor if available, otherwise skip OCR
-        if hasattr(sys.modules[__name__], 'html_processor'):
-            html_processor.process_document(filepath, doc_id, db)
-            print(f"HTML processing complete for {filepath}")
-        else:
-            print(f"No HTML processor available, skipping OCR for {filepath}")
-            # Mark as completed since we can't process it
-            db.update_processing_progress(doc_id, 100.0, "HTML file (no processor available)")
+        # Use HTML processor
+        html_processor.process_document(filepath, doc_id, db)
+        print(f"HTML processing complete for {filepath}")
     else:
         # Default PDF processing
         print(f"Processing PDF file: {filepath}")
@@ -58,7 +77,7 @@ def process_new_file(relative_path):
         
         # Only queue PDFs for OCR
         ocr_queue.add_to_queue(doc_id, filepath)
-
+            
 def handle_removed_file(relative_path):
     """Handle a file that's been removed."""
     filepath = Path(os.path.join(UPLOAD_FOLDER, relative_path))

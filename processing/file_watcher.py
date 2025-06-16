@@ -140,8 +140,9 @@ class FileWatcher:
         self._thread.start()
         
         print(f"File watcher started with polling interval of {self.polling_interval} seconds")
-    
+        
     def scan_now(self) -> Tuple[List[str], List[str]]:
+        """Scan for new and removed files."""
         new_files = []
         removed_files = []
         
@@ -166,12 +167,21 @@ class FileWatcher:
         for rel_path in current_files:
             if rel_path not in self.files:
                 file_path = os.path.join(self.directory_path, rel_path)
-                self.files.append(rel_path)
-                self.file_mtimes[rel_path] = os.path.getmtime(file_path)
-                new_files.append(rel_path)
+                file_mtime = os.path.getmtime(file_path)
                 
-                for callback in self.callbacks:
-                    callback(rel_path)
+                # Check if this is truly a new file or just an updated version of existing file
+                # Only consider as new if it's not in file_mtimes or has been modified
+                is_new = (rel_path not in self.file_mtimes or 
+                        file_mtime > self.file_mtimes.get(rel_path, 0))
+                
+                if is_new:
+                    self.files.append(rel_path)
+                    self.file_mtimes[rel_path] = file_mtime
+                    new_files.append(rel_path)
+                    
+                    # Only call callbacks for genuinely new files
+                    for callback in self.callbacks:
+                        callback(rel_path)
         
         # Find removed files
         files_set = set(self.files)
