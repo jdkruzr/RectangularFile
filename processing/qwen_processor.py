@@ -215,12 +215,44 @@ class QwenVLProcessor:
             self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
 
-            # [Existing model loading and document preparation code...]
+            if not self._load_model():
+                self.logger.error("Failed to load model")
+                db_manager.update_processing_progress(doc_id, 0.0, "Failed to load model")
+                return False
+
+            if not db_manager.mark_ocr_started(doc_id):
+                self.logger.error(f"Failed to mark document {doc_id} for processing")
+                return False
+
+            self.logger.info(f"Converting PDF to images at {dpi} DPI")
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 db_manager.update_processing_progress(doc_id, 10.0, "Converting PDF to images")
 
-                # [Existing PDF to image conversion code...]
+                # Convert PDF to images
+                try:
+                    images = convert_from_path(
+                        pdf_path,
+                        dpi=dpi,
+                        output_folder=temp_dir,
+                        fmt='jpg'
+                    )
+                    self.logger.info(f"Converted PDF to {len(images)} images")
+                    processed_images = images
+
+                except Exception as pdf_error:
+                    self.logger.error(f"Error converting PDF to images: {pdf_error}")
+                    db_manager.update_processing_progress(
+                        doc_id, 0.0, f"Error converting PDF to images: {str(pdf_error)}"
+                    )
+                    return False
+
+                if not processed_images:
+                    self.logger.warning(f"No images extracted from PDF {doc_id}")
+                    db_manager.update_processing_progress(
+                        doc_id, 0.0, "No images could be extracted from PDF"
+                    )
+                    return False
 
                 page_data = {}
                 progress_per_page = 60.0 / len(processed_images)  # Reduced from 80 to allow for second pass
@@ -334,7 +366,56 @@ class QwenVLProcessor:
                 }
             ]
             
-            # [Rest of the original _process_image code for generating text]
+            # Use apply_chat_template to format the text properly
+            text = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            
+            # Process vision information with the utility function
+            image_inputs, video_inputs = process_vision_info(messages)
+            
+            # Prepare inputs with the processor
+            inputs = self.processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+            )
+
+            inputs = inputs.to(self.device)
+            
+            with torch.no_grad():
+                input_ids = inputs.input_ids
+                
+                generated_ids = self.model.generate(
+                    **inputs,
+                    max_new_tokens=500,
+                    do_sample=False,
+                    temperature=1.0,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id
+                )
+                
+                generated_ids_trimmed = [
+                    out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
+                ]
+                
+                output_text = self.processor.batch_decode(
+                    generated_ids_trimmed, 
+                    skip_special_tokens=True, 
+                    clean_up_tokenization_spaces=False
+                )
+                
+                text = output_text[0]
+            
+            # Clean up resources
+            del inputs, generated_ids, generated_ids_trimmed
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                
+            text_preview = text[:100] + "..." if text else "[No text recognized]"
+            self.logger.info(f"Transcription preview: {text_preview}")
             
             return text
 
