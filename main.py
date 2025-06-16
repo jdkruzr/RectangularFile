@@ -37,18 +37,26 @@ def process_new_file(relative_path):
         print(f"Failed to add document to database: {filepath}")
         return
     
-    # Choose the appropriate processor based on file extension
-    extension = filepath.suffix.lower()
+    # Choose processor based on file extension
+    file_extension = filepath.suffix.lower()
     
-    if extension in ['.html', '.htm']:
-        # Process HTML files
-        html_processor.process_document(filepath, doc_id, db)
-    
+    # Process based on file type
+    if file_extension in ['.html', '.htm']:
+        print(f"Processing HTML file: {filepath}")
+        # Use HTML processor if available, otherwise skip OCR
+        if hasattr(sys.modules[__name__], 'html_processor'):
+            html_processor.process_document(filepath, doc_id, db)
+            print(f"HTML processing complete for {filepath}")
+        else:
+            print(f"No HTML processor available, skipping OCR for {filepath}")
+            # Mark as completed since we can't process it
+            db.update_processing_progress(doc_id, 100.0, "HTML file (no processor available)")
     else:
-        # Process with text extraction
+        # Default PDF processing
+        print(f"Processing PDF file: {filepath}")
         pdf_processor.process_document(filepath, doc_id, db)
         
-        # Queue for OCR processing
+        # Only queue PDFs for OCR
         ocr_queue.add_to_queue(doc_id, filepath)
 
 def handle_removed_file(relative_path):

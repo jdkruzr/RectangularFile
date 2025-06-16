@@ -617,4 +617,45 @@ def register_routes(app):
             app.logger.error(traceback.format_exc())
             return jsonify(success=False, message=f"Error: {str(e)}"), 500
 
+    @app.route('/fix_html_file/<path:filename>')
+    def fix_html_file(filename):
+        """Fix an HTML file that might be in a bad state."""
+        try:
+            # Get the full path
+            filepath = Path(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            
+            if not filepath.exists():
+                return jsonify(success=False, message="File not found"), 404
+                
+            # Get document by filename
+            base_filename = os.path.basename(filename)
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM pdf_documents WHERE filename = ?", (base_filename,))
+                result = cursor.fetchone()
+                
+            if not result:
+                # Add to database if not found
+                doc_id = app.db.add_document(filepath)
+                if not doc_id:
+                    return jsonify(success=False, message="Failed to add document to database"), 500
+            else:
+                doc_id = result['id']
+                
+            # Reset status
+            app.db.reset_document_status_by_id(doc_id)
+            
+            # Process with HTML processor
+            if hasattr(app, 'html_processor') and app.html_processor:
+                app.html_processor.process_document(filepath, doc_id, app.db)
+                return jsonify(success=True, message=f"HTML file processed: {base_filename}")
+            else:
+                return jsonify(success=False, message="HTML processor not available"), 500
+                
+        except Exception as e:
+            app.logger.error(f"Error fixing HTML file: {e}")
+            import traceback
+            app.logger.error(traceback.format_exc())
+            return jsonify(success=False, message=f"Error: {str(e)}"), 500
+
     return app
