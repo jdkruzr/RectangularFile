@@ -12,3 +12,4 @@ qwen_vl_utils
 wordcloud
 matplotlib
 nltk
+beautifulsoup4

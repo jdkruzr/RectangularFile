@@ -224,6 +224,10 @@
                 <span class="metadata-value">{{ document.last_indexed_at.strftime('%Y-%m-%d %H:%M') if document.last_indexed_at else 'Unknown' }}</span>
             </div>
             {% endif %}
+
+            {% if document.filename.endswith('.html') or document.filename.endswith('.htm') %}
+                <div class="document-type-badge">HTML Note</div>
+            {% endif %}
             
             {% if document.processing_status %}
             <div class="metadata-item">

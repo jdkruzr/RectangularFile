@@ -2,7 +2,7 @@
 from flask import Flask
 import os
 
-def create_app(db_manager, file_watcher, pdf_processor, ocr_processor, ocr_queue):
+def create_app(db_manager, file_watcher, pdf_processor, ocr_processor, ocr_queue, html_processor=None):
     """Application factory."""
     # Get the absolute path to the templates directory
     template_dir = os.path.abspath('app/templates')
@@ -24,7 +24,8 @@ def create_app(db_manager, file_watcher, pdf_processor, ocr_processor, ocr_queue
     app.pdf_processor = pdf_processor
     app.ocr_processor = ocr_processor
     app.ocr_queue = ocr_queue
-    
+    app.html_processor = html_processor
+       
     # Initialize file watcher
     _init_file_watcher(app)
     

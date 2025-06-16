@@ -26,6 +26,10 @@ class FileWatcher:
         self.polling_interval = polling_interval
         self.recursive = recursive
         
+        if not file_types:
+            file_types = ['.pdf', '.html', '.htm']
+        self.file_types = file_types
+        
         if not os.path.exists(self.directory_path):
             os.makedirs(self.directory_path)
             

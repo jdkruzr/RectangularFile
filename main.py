@@ -11,6 +11,7 @@ from processing.file_watcher import FileWatcher
 from processing.pdf_processor import PDFProcessor
 from processing.qwen_processor import QwenVLProcessor
 from processing.ocr_queue_manager import OCRQueueManager
+from processing.html_processor import HTMLProcessor
 
 # Configuration
 UPLOAD_FOLDER = "/mnt/onyx"
@@ -22,6 +23,7 @@ file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTER
 pdf_processor = PDFProcessor()
 ocr_processor = QwenVLProcessor()
 ocr_queue = OCRQueueManager(db, ocr_processor)
+html_processor = HTMLProcessor()
 
 # Define callbacks for file watching
 def process_new_file(relative_path):
@@ -34,12 +36,20 @@ def process_new_file(relative_path):
     if not doc_id:
         print(f"Failed to add document to database: {filepath}")
         return
-        
-    # Process with text extraction
-    pdf_processor.process_document(filepath, doc_id, db)
     
-    # Queue for OCR processing
-    ocr_queue.add_to_queue(doc_id, filepath)
+    # Choose the appropriate processor based on file extension
+    extension = filepath.suffix.lower()
+    
+    if extension in ['.html', '.htm']:
+        # Process HTML files
+        html_processor.process_document(filepath, doc_id, db)
+    
+    else:
+        # Process with text extraction
+        pdf_processor.process_document(filepath, doc_id, db)
+        
+        # Queue for OCR processing
+        ocr_queue.add_to_queue(doc_id, filepath)
 
 def handle_removed_file(relative_path):
     """Handle a file that's been removed."""
@@ -71,7 +81,7 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 # Create the Flask application
-app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue)
+app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue, html_processor)
 
 if __name__ == '__main__':
     if not os.path.exists(UPLOAD_FOLDER):
