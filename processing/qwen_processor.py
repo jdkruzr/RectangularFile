@@ -319,7 +319,7 @@ class QwenVLProcessor:
                             "resized_height": image.height,
                             "resized_width": image.width,
                         },
-                        {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible."},
+                        {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible. At the bottom of your transcription, create a line of ten hyphens. After the hyphens, if you have seen a symbol that looks like a circle with an X through it on a line with text, of roughly the same size as the letters in that line, write CALLOUT: and then that line of text."},
                     ],
                 }
             ]
