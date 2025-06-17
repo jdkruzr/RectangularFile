@@ -227,6 +227,9 @@ class QwenVLProcessor:
         Returns:
             bool: Success or failure
         """
+        
+        annotations: List[Dict] = [] 
+                
         try:
             self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
@@ -273,12 +276,13 @@ class QwenVLProcessor:
                     return False
 
                 page_data = {}
-                progress_per_page = 60.0 / len(processed_images)  # Reduced from 80 to allow for second pass
-                annotations = []
+                progress_per_page = 60.0 / len(processed_images)
+
+                resized_images_for_processing: List[Image.Image] = [] # Store resized images here
 
                 # First pass - Text transcription
                 self.logger.info("Starting first pass: Text transcription")
-                for i, image in enumerate(processed_images):
+                for i, image_pil_original in enumerate(processed_images):
                     page_num = i + 1
                     current_progress = 20.0 + (i * progress_per_page)
 
@@ -289,11 +293,10 @@ class QwenVLProcessor:
                         f"Transcribing text on page {page_num}/{len(processed_images)}"
                     )
 
-                    # Resize and save the image
-                    image, image_path = self._resize_image_if_needed(image, doc_id, page_num)
+                    image_for_transcription, image_path = self._resize_image_if_needed(image_pil_original, doc_id, page_num)
+                    resized_images_for_processing.append(image_for_transcription) # Save for second pass
                     
-                    # Process the image for basic text transcription
-                    text = self._transcribe_text(image)
+                    text = self._transcribe_text(image_for_transcription)
                     
                     word_count = len(text.split()) if text else 0
                     char_count = len(text) if text else 0
@@ -324,7 +327,6 @@ class QwenVLProcessor:
                     torch.cuda.synchronize()
                     self._log_memory_usage("After first pass cleanup")
                     
-                    # If still low on memory, try to force Python garbage collection
                     import gc
                     gc.collect()
                     torch.cuda.empty_cache()
@@ -347,15 +349,15 @@ class QwenVLProcessor:
                 self.logger.info("Starting second pass: Detecting annotations")
                 db_manager.update_processing_progress(doc_id, 85.0, "Detecting annotations")
                 
-                # Ensure annotations table exists
                 self._ensure_annotations_table(db_manager)
-                
-                for i, image in enumerate(processed_images):
+
+                # Iterate over the images that were already resized in the first pass
+                for i, image_for_annotations in enumerate(resized_images_for_processing):
                     page_num = i + 1
-                    self.logger.info(f"Detecting annotations on page {page_num}/{len(processed_images)}")
+                    self.logger.info(f"Detecting annotations on page {page_num}/{len(resized_images_for_processing)}")
                     
-                    # Get boxed text annotations
-                    page_annotations = self._detect_boxed_text(image, page_num)
+                    # No need to call _resize_image_if_needed again
+                    page_annotations = self._detect_boxed_text(image_for_annotations, page_num)
                     annotations.extend(page_annotations)
                     
                     if self.device == "cuda":
@@ -693,3 +695,4 @@ class QwenVLProcessor:
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return ""
+        
