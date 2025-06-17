@@ -471,106 +471,117 @@ class QwenVLProcessor:
         """Second pass: Detect text that has been boxed/highlighted."""
         try:
             self.logger.info(f"Detecting boxed text in image for page {page_num}")
-            self._log_memory_usage("Before annotation detection")
             
-            # Create message with a focused prompt for boxed text detection
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "image": image,
-                            "resized_height": image.height,
-                            "resized_width": image.width,
-                        },
-                        {"type": "text", "text": "Look at this handwritten note. Find any text that has a box or rectangle drawn around it. For each boxed text, return only the text inside the box. Format as a JSON array like this: [{\"text\": \"boxed text 1\"}, {\"text\": \"boxed text 2\"}]."},
-                    ],
-                }
-            ]
-            
-            # Use the same processing pipeline as in _process_image
-            text = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-            
-            image_inputs, video_inputs = process_vision_info(messages)
-            
-            inputs = self.processor(
-                text=[text],
-                images=image_inputs,
-                videos=video_inputs,
-                padding=True,
-                return_tensors="pt",
-            )
-
-            inputs = inputs.to(self.device)
-            
-            with torch.no_grad():
-                input_ids = inputs.input_ids
-                
-                generated_ids = self.model.generate(
-                    **inputs,
-                    max_new_tokens=500,
-                    do_sample=False,
-                    temperature=1.0,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id
-                )
-                
-                generated_ids_trimmed = [
-                    out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
-                ]
-                
-                output_text = self.processor.batch_decode(
-                    generated_ids_trimmed, 
-                    skip_special_tokens=True, 
-                    clean_up_tokenization_spaces=False
-                )
-                
-                response = output_text[0]
-
-            # Clean up resources
-            del inputs, generated_ids, generated_ids_trimmed
+            # Force memory cleanup before starting
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-                
-            self.logger.info(f"Raw annotation detection response: {response[:100]}...")
+                torch.cuda.synchronize()
+                import gc
+                gc.collect()
             
-            # Try to parse JSON response
-            try:
-                # First, look for a JSON array in the text
-                import json
-                import re
+            self._log_memory_usage("Start of annotation detection (after cleanup)")
+            
+            # Explicitly use torch.cuda.amp for mixed precision
+            with torch.cuda.amp.autocast(enabled=True):
+                # Use a shorter prompt
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "image": image,
+                                "resized_height": image.height,
+                                "resized_width": image.width,
+                            },
+                            {"type": "text", "text": "Find text in boxes."},
+                        ],
+                    }
+                ]
                 
-                # Try to find something that looks like a JSON array
-                json_match = re.search(r'\[\s*\{.*\}\s*\]', response, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                    boxed_items = json.loads(json_str)
-                    
-                    # Convert to our annotation format
-                    annotations = []
-                    for item in boxed_items:
-                        if 'text' in item and item['text'].strip():
-                            annotations.append({
-                                'page_number': page_num,
-                                'annotation_type': 'box',
-                                'text': item['text'].strip(),
-                                'confidence': 0.9  # Confidence is hard to determine
-                            })
-                    
-                    self.logger.info(f"Found {len(annotations)} boxed text items on page {page_num}")
-                    return annotations
-                else:
-                    self.logger.warning(f"No valid JSON found in response: {response}")
-                    return []
-                    
-            except Exception as parse_error:
-                self.logger.error(f"Error parsing boxed text response: {parse_error}")
-                self.logger.error(f"Response was: {response}")
-                return []
+                # Track token counts to understand sequence length differences
+                text = self.processor.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
+                tokenized = self.tokenizer(text, return_tensors="pt")
+                input_token_count = tokenized.input_ids.shape[1]
+                self.logger.info(f"Input token count: {input_token_count}")
+                
+                image_inputs, video_inputs = process_vision_info(messages)
+                
+                # Use smaller batch size
+                inputs = self.processor(
+                    text=[text],
+                    images=image_inputs,
+                    videos=video_inputs,
+                    padding=True,
+                    return_tensors="pt",
+                )
 
+                # Force to GPU as INT8
+                for k, v in inputs.items():
+                    if hasattr(v, 'to'):
+                        inputs[k] = v.to(self.device)
+                
+                self._log_memory_usage("Before generation")
+                
+                # Use explicit memory-saving parameters
+                with torch.no_grad():
+                    generated_ids = self.model.generate(
+                        **inputs,
+                        max_new_tokens=100,  # Reduced significantly
+                        do_sample=False,
+                        temperature=1.0,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                        use_cache=True,  # Explicitly enable KV caching
+                        repetition_penalty=1.0,
+                        low_memory=True,  # Some models support this option
+                        max_length=input_token_count + 100  # Explicitly limit max length
+                    )
+                    
+                    self._log_memory_usage("After generation")
+                    
+                    # Trim input tokens from output
+                    generated_ids_trimmed = [
+                        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+                    ]
+                    
+                    # Decode output
+                    output_text = self.processor.batch_decode(
+                        generated_ids_trimmed, 
+                        skip_special_tokens=True, 
+                        clean_up_tokenization_spaces=False
+                    )
+                    
+                    response = output_text[0]
+            
+            # Immediate aggressive cleanup
+            del inputs, generated_ids, generated_ids_trimmed, tokenized
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                import gc
+                gc.collect()
+            
+            self._log_memory_usage("After cleanup")
+            
+            # Parse response to find boxed text - simple line-based approach
+            lines = [line.strip() for line in response.split('\n') if line.strip()]
+            
+            annotations = []
+            for line in lines:
+                if line and len(line) > 3:  # Basic filtering
+                    annotations.append({
+                        'page_number': page_num,
+                        'annotation_type': 'box',
+                        'text': line.strip(),
+                        'confidence': 0.8
+                    })
+            
+            self.logger.info(f"Found {len(annotations)} boxed text items on page {page_num}")
+            return annotations
+            
         except Exception as e:
             self.logger.error(f"Error detecting boxed text: {e}")
             import traceback
