@@ -13,7 +13,7 @@ import torch
 from transformers import (
     AutoTokenizer,
     AutoProcessor,
-    # BitsAndBytesConfig,
+    # BitsAndBytesConfig, # Not using for FP16
     Qwen2_5_VLForConditionalGeneration
 )
 from PIL import Image
@@ -99,7 +99,10 @@ class QwenVLProcessor:
         if torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated() / (1024**3)
             reserved = torch.cuda.memory_reserved() / (1024**3)
-            free = (torch.cuda.get_device_properties(0).total_memory / (1024**3)) - allocated
+            # Calculate free memory based on total - reserved (more accurate for available)
+            total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            free = total_memory - reserved
+
 
             memory_info = (
                 f"GPU Memory: {allocated:.2f} GB allocated, "
@@ -116,15 +119,19 @@ class QwenVLProcessor:
         debug_dir = Path("/mnt/rectangularfile/debug_images")
         debug_dir.mkdir(exist_ok=True)
         
-        # Create a timestamp and filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        original_path = debug_dir / f"original_{timestamp}_doc_{doc_id}_page_{page_num}.jpg"
-        image.save(original_path)
-        self.logger.info(f"Saved original image to {original_path}")
-        
+        original_path_str = str(debug_dir / f"original_{timestamp}_doc_{doc_id}_page_{page_num}.jpg")
+        try:
+            image.save(original_path_str)
+            self.logger.info(f"Saved original image to {original_path_str}")
+        except Exception as e:
+            self.logger.error(f"Error saving original image {original_path_str}: {e}")
+            original_path_str = "" 
+
+
         original_pixels = image.width * image.height
         if original_pixels <= self.target_image_pixels:
-            return image, str(original_path)
+            return image, original_path_str
 
         ratio = (self.target_image_pixels / original_pixels) ** 0.5
         new_width = int(image.width * ratio)
@@ -138,12 +145,14 @@ class QwenVLProcessor:
 
         resized_image = image.resize((new_width, new_height), Image.LANCZOS)
         
-        # Save resized image
-        resized_path = debug_dir / f"resized_{timestamp}_doc_{doc_id}_page_{page_num}.jpg"
-        resized_image.save(resized_path)
-        self.logger.info(f"Saved resized image to {resized_path}")
-        
-        return resized_image, str(original_path)  # Return the original image path
+        resized_path_str = str(debug_dir / f"resized_{timestamp}_doc_{doc_id}_page_{page_num}.jpg")
+        try:
+            resized_image.save(resized_path_str)
+            self.logger.info(f"Saved resized image to {resized_path_str}")
+        except Exception as e:
+            self.logger.error(f"Error saving resized image {resized_path_str}: {e}")
+
+        return resized_image, original_path_str
 
     def _load_model(self):
         """Load the model, tokenizer, and processor if not already loaded."""
@@ -152,7 +161,6 @@ class QwenVLProcessor:
                 self.logger.info(f"Loading model: {self.model_name}")
                 start_time = time.time()
 
-                # Load tokenizer and processor
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     self.model_name,
                     trust_remote_code=True
@@ -162,46 +170,32 @@ class QwenVLProcessor:
                     trust_remote_code=True
                 )
 
-                # Ensure tokenizer has pad and eos tokens if needed
                 if self.tokenizer.pad_token is None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
 
-                # Optimize model loading based on device
                 if self.device == "cuda":
-                    self.logger.info("Loading model with FP16 precision and memory efficiency")
-                    #quantization_config = BitsAndBytesConfig(
-                    #    load_in_8bit=True,
-                    #    llm_int8_threshold=6.0,
-                    #    llm_int8_skip_modules=None,
-                    #    llm_int8_enable_fp32_cpu_offload=True
-                    #)
+                    self.logger.info("Loading model with FP16 precision for GPU")
                     model_kwargs = {
                         "device_map": "auto",
                         "trust_remote_code": True,
-                     #   "quantization_config": quantization_config,
-                     #   "max_memory": {0: "10GiB"},  # Limit to 10GB VRAM usage
+                        "torch_dtype": torch.float16,
+                        "max_memory": {0: "10GiB"}, 
                         "offload_folder": "offload_folder"
                     }
                 else:
-                    self.logger.info("Loading model for CPU inference")
+                    self.logger.info("Loading model for CPU inference (FP32 or default)")
                     model_kwargs = {
-                        "device_map": "auto",
+                        "device_map": "auto", 
                         "trust_remote_code": True,
                         "low_cpu_mem_usage": True
                     }
 
-                # Load the model
                 self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                     self.model_name,
                     **model_kwargs
                 )
-
-                # Put model in evaluation mode
                 self.model.eval()
-
-                # Log memory usage
                 self._log_memory_usage()
-
                 elapsed = time.time() - start_time
                 self.logger.info(f"Model loaded successfully in {elapsed:.2f} seconds")
                 return True
@@ -214,27 +208,13 @@ class QwenVLProcessor:
         return True
 
     def process_document(self, pdf_path: Path, doc_id: int, db_manager: DatabaseManager, dpi: int = 150, detect_annotations: bool = True) -> bool:
-        """
-        Process a PDF document with a two-pass approach for text and annotations.
-        
-        Args:
-            pdf_path: Path to the PDF file
-            doc_id: Document ID in the database
-            db_manager: Database manager instance
-            dpi: DPI for image conversion
-            detect_annotations: Whether to run the second pass for annotation detection
-        
-        Returns:
-            bool: Success or failure
-        """
-        
+        # Initialize annotations list at the beginning of the method scope
         annotations: List[Dict] = [] 
                 
-        try:
+        try: # Main try block for the entire method
             self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
             self.logger.info(f"Annotation detection enabled: {detect_annotations}")
-
 
             if not self._load_model():
                 self.logger.error("Failed to load model")
@@ -246,97 +226,70 @@ class QwenVLProcessor:
                 return False
 
             self.logger.info(f"Converting PDF to images at {dpi} DPI")
-
             with tempfile.TemporaryDirectory() as temp_dir:
                 db_manager.update_processing_progress(doc_id, 10.0, "Converting PDF to images")
-
-                # Convert PDF to images
                 try:
-                    images = convert_from_path(
+                    images_pil_list = convert_from_path(
                         pdf_path,
                         dpi=dpi,
                         output_folder=temp_dir,
                         fmt='jpg'
                     )
-                    self.logger.info(f"Converted PDF to {len(images)} images")
-                    processed_images = images
-
+                    self.logger.info(f"Converted PDF to {len(images_pil_list)} images")
                 except Exception as pdf_error:
                     self.logger.error(f"Error converting PDF to images: {pdf_error}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, f"Error converting PDF to images: {str(pdf_error)}"
-                    )
+                    db_manager.update_processing_progress(doc_id, 0.0, f"Error converting PDF: {str(pdf_error)}")
                     return False
 
-                if not processed_images:
+                if not images_pil_list:
                     self.logger.warning(f"No images extracted from PDF {doc_id}")
-                    db_manager.update_processing_progress(
-                        doc_id, 0.0, "No images could be extracted from PDF"
-                    )
+                    db_manager.update_processing_progress(doc_id, 0.0, "No images from PDF")
                     return False
 
                 page_data = {}
-                progress_per_page = 60.0 / len(processed_images)
+                progress_per_page = 60.0 / len(images_pil_list) if images_pil_list else 60.0
+                resized_images_for_processing: List[Image.Image] = []
 
-                resized_images_for_processing: List[Image.Image] = [] # Store resized images here
-
-                # First pass - Text transcription
                 self.logger.info("Starting first pass: Text transcription")
-                for i, image_pil_original in enumerate(processed_images):
+                for i, image_pil_original in enumerate(images_pil_list):
                     page_num = i + 1
                     current_progress = 20.0 + (i * progress_per_page)
+                    self.logger.info(f"Transcribing page {page_num}/{len(images_pil_list)}")
+                    db_manager.update_processing_progress(doc_id, current_progress, f"Transcribing page {page_num}")
 
-                    self.logger.info(f"Transcribing page {page_num}/{len(processed_images)}")
-                    db_manager.update_processing_progress(
-                        doc_id,
-                        current_progress,
-                        f"Transcribing text on page {page_num}/{len(processed_images)}"
-                    )
-
-                    image_for_transcription, image_path = self._resize_image_if_needed(image_pil_original, doc_id, page_num)
-                    resized_images_for_processing.append(image_for_transcription) # Save for second pass
+                    image_for_transcription, image_path_str = self._resize_image_if_needed(image_pil_original, doc_id, page_num)
+                    resized_images_for_processing.append(image_for_transcription)
                     
-                    text = self._transcribe_text(image_for_transcription)
+                    text_content = self._transcribe_text(image_for_transcription)
                     
-                    word_count = len(text.split()) if text else 0
-                    char_count = len(text) if text else 0
-
-                    page_data[page_num] = {
-                        'text': text,
-                        'word_count': word_count,
-                        'char_count': char_count,
+                    # Corrected dictionary assignment
+                    page_data[page_num] = { 
+                        'text': text_content,
+                        'word_count': len(text_content.split()) if text_content else 0,
+                        'char_count': len(text_content) if text_content else 0,
                         'processed_at': datetime.now(),
-                        'image_path': image_path
+                        'image_path': image_path_str
                     }
+                    if self.device == "cuda": torch.cuda.empty_cache()
 
-                    if self.device == "cuda":
-                        torch.cuda.empty_cache()
-
-                # Store the transcription results
                 self.logger.info(f"Storing transcription results for {len(page_data)} pages")
-                db_manager.update_processing_progress(doc_id, 80.0, "Storing transcribed text")
-                success = db_manager.store_ocr_results(doc_id, page_data)
-
-                if not success:
-                    self.logger.error(f"Failed to store transcription results for document {doc_id}")
-                    db_manager.update_processing_progress(doc_id, 0.0, "Failed to store transcription results")
+                db_manager.update_processing_progress(doc_id, 80.0, "Storing transcriptions")
+                if not db_manager.store_ocr_results(doc_id, page_data):
+                    self.logger.error(f"Failed to store transcriptions for doc {doc_id}")
+                    db_manager.update_processing_progress(doc_id, 0.0, "Failed to store transcriptions")
                     return False
 
                 if self.device == "cuda":
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache(); torch.cuda.synchronize()
                     self._log_memory_usage("After first pass cleanup")
-                    
-                    import gc
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
+                    import gc; gc.collect()
+                    torch.cuda.empty_cache(); torch.cuda.synchronize()
                     self._log_memory_usage("After garbage collection")
 
                 if not detect_annotations:
-                    self.logger.info("Skipping annotation detection as requested")
-                    db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
-                    total_words = sum(page['word_count'] for page in page_data.values())
+                    self.logger.info("Skipping annotation detection.")
+                    db_manager.update_processing_progress(doc_id, 100.0, "Processing complete (no annotations)")
+                    total_words = sum(p.get('word_count', 0) for p in page_data.values())
                     self.logger.info(
                         f"Successfully processed document {doc_id}\n"
                         f"Total words: {total_words}\n"
@@ -345,97 +298,65 @@ class QwenVLProcessor:
                     )
                     return True
 
-                # Second pass - Detect annotations
                 self.logger.info("Starting second pass: Detecting annotations")
                 db_manager.update_processing_progress(doc_id, 85.0, "Detecting annotations")
-                
                 self._ensure_annotations_table(db_manager)
 
-                # Iterate over the images that were already resized in the first pass
                 for i, image_for_annotations in enumerate(resized_images_for_processing):
                     page_num = i + 1
                     self.logger.info(f"Detecting annotations on page {page_num}/{len(resized_images_for_processing)}")
-                    
-                    # No need to call _resize_image_if_needed again
                     page_annotations = self._detect_boxed_text(image_for_annotations, page_num)
-                    annotations.extend(page_annotations)
-                    
-                    if self.device == "cuda":
-                        torch.cuda.empty_cache()
+                    annotations.extend(page_annotations) # annotations list is defined at the start of the method
+                    if self.device == "cuda": torch.cuda.empty_cache()
                 
-                # Store annotations
                 if annotations:
                     self.logger.info(f"Storing {len(annotations)} annotations")
                     db_manager.store_document_annotations(doc_id, annotations)
                 
                 db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
-                
-                total_words = sum(page['word_count'] for page in page_data.values())
+                total_words = sum(p.get('word_count', 0) for p in page_data.values())
                 self.logger.info(
                     f"Successfully processed document {doc_id}\n"
                     f"Total words: {total_words}\n"
                     f"Pages processed: {len(page_data)}\n"
                     f"Annotations found: {len(annotations)}"
                 )
-                
                 return True
 
-        except Exception as e:
-            error_message = f"Error processing document: {str(e)}"
-            self.logger.error(f"Error in processing document {doc_id}: {e}")
+        except Exception as e: # Matching except for the main try block
+            error_message = f"Error processing document {doc_id}: {str(e)}"
+            self.logger.error(error_message)
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
             return False
 
     def _transcribe_text(self, image: Image.Image) -> str:
-        """First pass: Just get the basic transcription without any special processing."""
         try:
-            self.logger.info(f"Transcribing image of size {image.width}x{image.height}")
-            self._log_memory_usage("Before transcription")
+            self.logger.info(f"Transcribing image of size {image.width}x{image.height} (FP16)")
+            self._log_memory_usage("Before transcription (FP16)")
             
-            # Create message with a simple transcription prompt
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "image": image,
-                            "resized_height": image.height,
-                            "resized_width": image.width,
-                        },
-                        {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible."},
-                    ],
-                }
-            ]
+            messages = [{"role": "user", "content": [{"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible."}]}]
             
-            # Use apply_chat_template to format the text properly
-            text = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
+            text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            image_inputs_list, video_inputs_list = process_vision_info(messages)
+            
+            # Corrected: arguments to processor and closing parenthesis
+            inputs_dict = self.processor(
+                text=[text_prompt], 
+                images=image_inputs_list, 
+                videos=video_inputs_list, 
+                padding=True, 
+                return_tensors="pt"
             )
+            inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
             
-            # Process vision information with the utility function
-            image_inputs, video_inputs = process_vision_info(messages)
-            
-            # Prepare inputs with the processor
-            inputs = self.processor(
-                text=[text],
-                images=image_inputs,
-                videos=video_inputs,
-                padding=True,
-                return_tensors="pt",
-            )
-
-            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()} # Ensure all tensors go to device
-            
-            with torch.cuda.amp.autocast(enabled=(self.device == "cuda")): # Enable autocast only for CUDA
-            
+            with torch.cuda.amp.autocast(enabled=(self.device == "cuda")):
                 with torch.no_grad():
-                    input_ids = inputs.input_ids
+                    current_input_ids = inputs_dict_on_device['input_ids']
                     
                     generated_ids = self.model.generate(
-                        **inputs,
+                        **inputs_dict_on_device,
                         max_new_tokens=500,
                         do_sample=False,
                         temperature=1.0,
@@ -443,27 +364,16 @@ class QwenVLProcessor:
                         eos_token_id=self.tokenizer.eos_token_id
                     )
                     
-                    generated_ids_trimmed = [
-                        out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
-                    ]
+                    generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(current_input_ids, generated_ids)]
                     
-                    output_text = self.processor.batch_decode(
-                        generated_ids_trimmed, 
-                        skip_special_tokens=True, 
-                        clean_up_tokenization_spaces=False
-                    )
-                    
-                    text = output_text[0]
+                    output_text_list = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+                    transcribed_text = output_text_list[0] if output_text_list else ""
             
-            # Clean up resources
-            del inputs, generated_ids, generated_ids_trimmed
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+            del inputs_dict, inputs_dict_on_device, generated_ids, generated_ids_trimmed, current_input_ids
+            if self.device == "cuda": torch.cuda.empty_cache()
                 
-            text_preview = text[:100] + "..." if text else "[No text recognized]"
-            self.logger.info(f"Transcription preview: {text_preview}")
-            
-            return text
+            self.logger.info(f"Transcription preview (FP16): {transcribed_text[:100] + '...' if transcribed_text else '[No text recognized]'}")
+            return transcribed_text
 
         except Exception as e:
             self.logger.error(f"Error transcribing text (FP16): {e}")
@@ -472,125 +382,70 @@ class QwenVLProcessor:
             return ""
 
     def _detect_boxed_text(self, image: Image.Image, page_num: int) -> list:
-        """Second pass: Detect text that has been boxed/highlighted."""
+        annotations_found: List[Dict] = []
         try:
-            self.logger.info(f"Detecting boxed text in image for page {page_num} (FP16)")
-            
-            # Force memory cleanup before starting
+            self.logger.info(f"Detecting boxed text on page {page_num} (FP16)")
             if self.device == "cuda":
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-                import gc
-                gc.collect()
+                torch.cuda.empty_cache(); torch.cuda.synchronize(); import gc; gc.collect()
+            self._log_memory_usage("Start of annotation detection (FP16, after cleanup)")
             
-            self._log_memory_usage("Start of annotation detection (after cleanup)")
-            
-            # Explicitly use torch.cuda.amp for mixed precision
             with torch.cuda.amp.autocast(enabled=(self.device == "cuda")):
-                # Use a shorter prompt
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "image": image,
-                                "resized_height": image.height,
-                                "resized_width": image.width,
-                            },
-                            {"type": "text", "text": "Transcribe only text you see with a box drawn around it."},
-                        ],
-                    }
-                ]
+                messages = [{"role": "user", "content": [{"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, {"type": "text", "text": "Transcribe only text you see with a box drawn around it."}]}]
                 
-                # Track token counts to understand sequence length differences
-                text = self.processor.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
+                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                
+                tokenized_prompt = self.tokenizer(text_prompt, return_tensors="pt")
+                input_token_count = tokenized_prompt.input_ids.shape[1]
+                del tokenized_prompt 
+                self.logger.info(f"Input token count (FP16): {input_token_count}")
+                
+                image_inputs_list, video_inputs_list = process_vision_info(messages)
+                
+                inputs_dict = self.processor(
+                    text=[text_prompt], 
+                    images=image_inputs_list, 
+                    videos=video_inputs_list, 
+                    padding=True, 
+                    return_tensors="pt"
                 )
-                tokenized = self.tokenizer(text, return_tensors="pt")
-                input_token_count = tokenized.input_ids.shape[1]
-                self.logger.info(f"Input token count: {input_token_count}")
+                inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
                 
-                image_inputs, video_inputs = process_vision_info(messages)
-                
-                # Use smaller batch size
-                inputs = self.processor(
-                    text=[text],
-                    images=image_inputs,
-                    videos=video_inputs,
-                    padding=True,
-                    return_tensors="pt",
-                )
-
-                # Force to GPU as INT8
-                #for k, v in inputs.items():
-                #    if hasattr(v, 'to'):
-                #        inputs[k] = v.to(self.device)
-                
-                inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()} # Ensure all tensors go to device
-                  
-                self._log_memory_usage("Before generation")
-                
-                # Use explicit memory-saving parameters
+                self._log_memory_usage("Before generation (FP16)")
                 with torch.no_grad():
+                    current_input_ids = inputs_dict_on_device['input_ids']
                     generated_ids = self.model.generate(
-                        **inputs,
-                        max_new_tokens=100,  # Reduced significantly
+                        **inputs_dict_on_device,
+                        max_new_tokens=100,
                         do_sample=False,
                         temperature=1.0,
                         pad_token_id=self.tokenizer.pad_token_id,
                         eos_token_id=self.tokenizer.eos_token_id,
-                        use_cache=True,  # Explicitly enable KV caching
+                        use_cache=True,
                         repetition_penalty=1.0,
-                        low_memory=True,  # Some models support this option
-                        max_length=input_token_count + 100  # Explicitly limit max length
+                        max_length=input_token_count + 100
                     )
-                    
-                    self._log_memory_usage("After generation")
-                    
-                    # Trim input tokens from output
-                    generated_ids_trimmed = [
-                        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-                    ]
-                    
-                    # Decode output
-                    output_text = self.processor.batch_decode(
-                        generated_ids_trimmed, 
-                        skip_special_tokens=True, 
-                        clean_up_tokenization_spaces=False
-                    )
-                    
-                    response = output_text[0]
+                    self._log_memory_usage("After generation (FP16)")
+                    generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(current_input_ids, generated_ids)]
+                    output_text_list = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+                    response = output_text_list[0] if output_text_list else ""
             
-            # Immediate aggressive cleanup
-            del inputs, generated_ids, generated_ids_trimmed, tokenized
+            del inputs_dict, inputs_dict_on_device, generated_ids, generated_ids_trimmed, current_input_ids
             if self.device == "cuda":
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-                import gc
-                gc.collect()
+                torch.cuda.empty_cache(); torch.cuda.synchronize(); import gc; gc.collect()
+            self._log_memory_usage("After cleanup (FP16)")
             
-            self._log_memory_usage("After cleanup")
-            
-            # Parse response to find boxed text - simple line-based approach
             lines = [line.strip() for line in response.split('\n') if line.strip()]
-            
-            annotations = []
             for line in lines:
-                if line and len(line) > 3:  # Basic filtering
-                    annotations.append({
-                        'page_number': page_num,
-                        'annotation_type': 'box',
-                        'text': line.strip(),
-                        'confidence': 0.8
-                    })
+                if line and len(line) > 3:
+                    annotations_found.append({'page_number': page_num, 'annotation_type': 'box', 'text': line.strip(), 'confidence': 0.8})
             
-            self.logger.info(f"Found {len(annotations)} boxed text items on page {page_num}")
-            return annotations
+            self.logger.info(f"Found {len(annotations_found)} boxed text items on page {page_num} (FP16)")
+            return annotations_found
             
         except Exception as e:
-            self.logger.error(f"Error detecting boxed text: {e}")
+            self.logger.error(f"Error detecting boxed text (FP16): {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return []
-    
+
+# _process_image method is commented out as per previous user action
