@@ -213,11 +213,25 @@ class QwenVLProcessor:
                 return False
         return True
 
-    def process_document(self, pdf_path: Path, doc_id: int, db_manager: DatabaseManager, dpi: int = 150) -> bool:
-        """Process a PDF document with a two-pass approach for text and annotations."""
+    def process_document(self, pdf_path: Path, doc_id: int, db_manager: DatabaseManager, dpi: int = 150, detect_annotations: bool = True) -> bool:
+        """
+        Process a PDF document with a two-pass approach for text and annotations.
+        
+        Args:
+            pdf_path: Path to the PDF file
+            doc_id: Document ID in the database
+            db_manager: Database manager instance
+            dpi: DPI for image conversion
+            detect_annotations: Whether to run the second pass for annotation detection
+        
+        Returns:
+            bool: Success or failure
+        """
         try:
             self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
             self.logger.info(f"Processing file: {pdf_path}")
+            self.logger.info(f"Annotation detection enabled: {detect_annotations}")
+
 
             if not self._load_model():
                 self.logger.error("Failed to load model")
@@ -316,6 +330,18 @@ class QwenVLProcessor:
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
                     self._log_memory_usage("After garbage collection")
+
+                if not detect_annotations:
+                    self.logger.info("Skipping annotation detection as requested")
+                    db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
+                    total_words = sum(page['word_count'] for page in page_data.values())
+                    self.logger.info(
+                        f"Successfully processed document {doc_id}\n"
+                        f"Total words: {total_words}\n"
+                        f"Pages processed: {len(page_data)}\n"
+                        f"Annotations detection skipped"
+                    )
+                    return True
 
                 # Second pass - Detect annotations
                 self.logger.info("Starting second pass: Detecting annotations")
