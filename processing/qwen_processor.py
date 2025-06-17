@@ -13,7 +13,7 @@ import torch
 from transformers import (
     AutoTokenizer,
     AutoProcessor,
-    BitsAndBytesConfig,
+    # BitsAndBytesConfig,
     Qwen2_5_VLForConditionalGeneration
 )
 from PIL import Image
@@ -168,18 +168,18 @@ class QwenVLProcessor:
 
                 # Optimize model loading based on device
                 if self.device == "cuda":
-                    self.logger.info("Loading model with INT8 quantization and memory efficiency")
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_8bit=True,
-                        llm_int8_threshold=6.0,
-                        llm_int8_skip_modules=None,
-                        llm_int8_enable_fp32_cpu_offload=True
-                    )
+                    self.logger.info("Loading model with FP16 precision and memory efficiency")
+                    #quantization_config = BitsAndBytesConfig(
+                    #    load_in_8bit=True,
+                    #    llm_int8_threshold=6.0,
+                    #    llm_int8_skip_modules=None,
+                    #    llm_int8_enable_fp32_cpu_offload=True
+                    #)
                     model_kwargs = {
                         "device_map": "auto",
                         "trust_remote_code": True,
-                        "quantization_config": quantization_config,
-                        "max_memory": {0: "10GiB"},  # Limit to 10GB VRAM usage
+                     #   "quantization_config": quantization_config,
+                     #   "max_memory": {0: "10GiB"},  # Limit to 10GB VRAM usage
                         "offload_folder": "offload_folder"
                     }
                 else:
@@ -427,31 +427,33 @@ class QwenVLProcessor:
                 return_tensors="pt",
             )
 
-            inputs = inputs.to(self.device)
+            inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()} # Ensure all tensors go to device
             
-            with torch.no_grad():
-                input_ids = inputs.input_ids
-                
-                generated_ids = self.model.generate(
-                    **inputs,
-                    max_new_tokens=500,
-                    do_sample=False,
-                    temperature=1.0,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id
-                )
-                
-                generated_ids_trimmed = [
-                    out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
-                ]
-                
-                output_text = self.processor.batch_decode(
-                    generated_ids_trimmed, 
-                    skip_special_tokens=True, 
-                    clean_up_tokenization_spaces=False
-                )
-                
-                text = output_text[0]
+            with torch.cuda.amp.autocast(enabled=(self.device == "cuda")): # Enable autocast only for CUDA
+            
+                with torch.no_grad():
+                    input_ids = inputs.input_ids
+                    
+                    generated_ids = self.model.generate(
+                        **inputs,
+                        max_new_tokens=500,
+                        do_sample=False,
+                        temperature=1.0,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id
+                    )
+                    
+                    generated_ids_trimmed = [
+                        out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
+                    ]
+                    
+                    output_text = self.processor.batch_decode(
+                        generated_ids_trimmed, 
+                        skip_special_tokens=True, 
+                        clean_up_tokenization_spaces=False
+                    )
+                    
+                    text = output_text[0]
             
             # Clean up resources
             del inputs, generated_ids, generated_ids_trimmed
@@ -464,7 +466,7 @@ class QwenVLProcessor:
             return text
 
         except Exception as e:
-            self.logger.error(f"Error transcribing text: {e}")
+            self.logger.error(f"Error transcribing text (FP16): {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return ""
@@ -472,7 +474,7 @@ class QwenVLProcessor:
     def _detect_boxed_text(self, image: Image.Image, page_num: int) -> list:
         """Second pass: Detect text that has been boxed/highlighted."""
         try:
-            self.logger.info(f"Detecting boxed text in image for page {page_num}")
+            self.logger.info(f"Detecting boxed text in image for page {page_num} (FP16)")
             
             # Force memory cleanup before starting
             if self.device == "cuda":
@@ -484,7 +486,7 @@ class QwenVLProcessor:
             self._log_memory_usage("Start of annotation detection (after cleanup)")
             
             # Explicitly use torch.cuda.amp for mixed precision
-            with torch.cuda.amp.autocast(enabled=True):
+            with torch.cuda.amp.autocast(enabled=(self.device == "cuda")):
                 # Use a shorter prompt
                 messages = [
                     {
@@ -496,7 +498,7 @@ class QwenVLProcessor:
                                 "resized_height": image.height,
                                 "resized_width": image.width,
                             },
-                            {"type": "text", "text": "Transcribe any text you see with a box drawn around it."},
+                            {"type": "text", "text": "Transcribe only text you see with a box drawn around it."},
                         ],
                     }
                 ]
@@ -521,10 +523,12 @@ class QwenVLProcessor:
                 )
 
                 # Force to GPU as INT8
-                for k, v in inputs.items():
-                    if hasattr(v, 'to'):
-                        inputs[k] = v.to(self.device)
+                #for k, v in inputs.items():
+                #    if hasattr(v, 'to'):
+                #        inputs[k] = v.to(self.device)
                 
+                inputs = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs.items()} # Ensure all tensors go to device
+                  
                 self._log_memory_usage("Before generation")
                 
                 # Use explicit memory-saving parameters
@@ -590,109 +594,3 @@ class QwenVLProcessor:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return []
     
-'''    def _process_image(self, image: Image.Image) -> str:
-        """Process a single image with Qwen2.5-VL using the approach from model_test.py."""
-        try:
-            self.logger.info(f"Processing image of size {image.width}x{image.height}")
-            self._log_memory_usage("Before image processing")
-            
-            # Create message structure matching model_test.py approach
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "image": image,
-                            "resized_height": image.height,
-                            "resized_width": image.width,
-                        },
-                        {"type": "text", "text": "Transcribe the handwritten text in this image as exactly as possible. At the bottom of your transcription, create a line of ten (10) hyphens. After the hyphens, if you have seen a symbol that looks like a circle with an X through it on a line with text, of roughly the same size as the letters in that line, write CALLOUT: and then that line of text. Only write CALLOUT: and then the line if that specific line had the circle and X character in it. Do this for each instance of a circle with an X through it on the page."},
-                    ],
-                }
-            ]
-            
-            # Use apply_chat_template to format the text properly
-            self.logger.info("Applying chat template...")
-            text = self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-            
-            # Process vision information with the utility function
-            self.logger.info("Processing vision information...")
-            image_inputs, video_inputs = process_vision_info(messages)
-            
-            # Prepare inputs with the same approach as model_test.py
-            self.logger.info("Preparing inputs with processor...")
-            inputs = self.processor(
-                text=[text],
-                images=image_inputs,
-                videos=video_inputs,
-                padding=True,
-                return_tensors="pt",
-            )
-
-            self.logger.info("Processor output details:")
-            for key, value in inputs.items():
-                if hasattr(value, 'shape'):
-                    self.logger.info(f"- {key}: shape {value.shape}")
-                elif isinstance(value, list):
-                    self.logger.info(f"- {key}: list of length {len(value)}")
-                else:
-                    self.logger.info(f"- {key}: type {type(value)}")
-
-            inputs = inputs.to(self.device)
-            self.logger.info(f"Moved inputs to {self.device}")
-            self._log_memory_usage("After moving inputs to GPU")
-
-            self.logger.info("Generating transcription...")
-            with torch.no_grad():
-                # Extract input_ids for trimming output later
-                input_ids = inputs.input_ids
-                
-                # Generate output
-                generated_ids = self.model.generate(
-                    **inputs,
-                    max_new_tokens=500,
-                    do_sample=False,
-                    temperature=1.0,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id
-                )
-                
-                # Trim input tokens from output, like in model_test.py
-                generated_ids_trimmed = [
-                    out_ids[len(in_ids):] for in_ids, out_ids in zip(input_ids, generated_ids)
-                ]
-                
-                # Decode output
-                output_text = self.processor.batch_decode(
-                    generated_ids_trimmed, 
-                    skip_special_tokens=True, 
-                    clean_up_tokenization_spaces=False
-                )
-                
-                # Use the first (and only) result
-                text = output_text[0]
-
-            self._log_memory_usage("After generation")
-            self.logger.info("Generation completed")
-
-            del inputs, generated_ids, generated_ids_trimmed
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                self._log_memory_usage("After cleanup")
-
-            text_preview = text[:100] + "..." if text else "[No text recognized]"
-            self.logger.info("=== Transcription preview ===")
-            self.logger.info(text_preview)
-            self.logger.info("============================")
-
-            return text
-
-        except Exception as e:
-            self.logger.error(f"Error processing image: {e}")
-            import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return ""
-'''        
