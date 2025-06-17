@@ -496,7 +496,7 @@ class QwenVLProcessor:
                                 "resized_height": image.height,
                                 "resized_width": image.width,
                             },
-                            {"type": "text", "text": "Find text in boxes."},
+                            {"type": "text", "text": "Transcribe any text you see with a box drawn around it."},
                         ],
                     }
                 ]
@@ -590,7 +590,7 @@ class QwenVLProcessor:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return []
     
-    def _process_image(self, image: Image.Image) -> str:
+'''    def _process_image(self, image: Image.Image) -> str:
         """Process a single image with Qwen2.5-VL using the approach from model_test.py."""
         try:
             self.logger.info(f"Processing image of size {image.width}x{image.height}")
@@ -695,4 +695,4 @@ class QwenVLProcessor:
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return ""
-        
+'''        
