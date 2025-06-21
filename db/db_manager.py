@@ -178,44 +178,53 @@ class DatabaseManager:
             return None
 
     def store_document_annotations(self, doc_id: int, annotations: list) -> bool:
-        """Store annotations for a document."""
+        """Store annotations for a document, preventing duplicates."""
         try:
-            # First, ensure the table exists
-            cursor = self.get_connection().cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS document_annotations (
-                    id INTEGER PRIMARY KEY,
-                    doc_id INTEGER,
-                    page_number INTEGER,
-                    annotation_type TEXT,
-                    text TEXT,
-                    confidence FLOAT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (doc_id) REFERENCES pdf_documents(id)
-                )
-            """)
-            
-            for annotation in annotations:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # First, ensure the table exists
                 cursor.execute("""
-                    INSERT INTO document_annotations (
-                        doc_id, 
-                        page_number, 
-                        annotation_type, 
-                        text,
-                        confidence
-                    ) VALUES (?, ?, ?, ?, ?)
-                """, (
-                    doc_id,
-                    annotation['page_number'],
-                    annotation['annotation_type'],
-                    annotation['text'],
-                    annotation.get('confidence', 0.0)
-                ))
-            
-            self.get_connection().commit()
-            self.logger.info(f"Stored {len(annotations)} annotations for document {doc_id}")
-            return True
-            
+                    CREATE TABLE IF NOT EXISTS document_annotations (
+                        id INTEGER PRIMARY KEY,
+                        doc_id INTEGER,
+                        page_number INTEGER,
+                        annotation_type TEXT,
+                        text TEXT,
+                        confidence FLOAT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (doc_id) REFERENCES pdf_documents(id)
+                    )
+                """)
+                
+                # Remove any existing annotations for this document to prevent duplicates
+                cursor.execute("""
+                    DELETE FROM document_annotations
+                    WHERE doc_id = ?
+                """, (doc_id,))
+                
+                # Now insert the new annotations
+                for annotation in annotations:
+                    cursor.execute("""
+                        INSERT INTO document_annotations (
+                            doc_id, 
+                            page_number, 
+                            annotation_type, 
+                            text,
+                            confidence
+                        ) VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        doc_id,
+                        annotation['page_number'],
+                        annotation['annotation_type'],
+                        annotation['text'],
+                        annotation.get('confidence', 0.0)
+                    ))
+                
+                conn.commit()
+                self.logger.info(f"Stored {len(annotations)} annotations for document {doc_id}")
+                return True
+                
         except Exception as e:
             self.logger.error(f"Error storing annotations for document {doc_id}: {e}")
             import traceback
