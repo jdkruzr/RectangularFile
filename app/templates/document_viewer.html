@@ -357,9 +357,18 @@
                             </div>
                             {% endif %}
                             
-                            <div class="page-text" id="page-{{ page_num }}">
-                                {{ page.text }}
+                        <div class="page-text editable-text" 
+                            id="page-{{ page_num }}"
+                            data-doc-id="{{ document.id }}"
+                            data-page-num="{{ page_num }}"
+                            data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                            <div class="text-content">{{ page.text }}</div>
+                            <div class="edit-controls">
+                                <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
                             </div>
+                        </div>
                         </div>
                     </div>
                 {% endfor %}
@@ -380,8 +389,17 @@
                             {% endif %}
                         </div>
                         
-                        <div class="page-text" id="text-only-page-{{ page_num }}">
-                            {{ page.text }}
+                        <div class="page-text editable-text" 
+                            id="text-only-page-{{ page_num }}"
+                            data-doc-id="{{ document.id }}"
+                            data-page-num="{{ page_num }}"
+                            data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                            <div class="text-content">{{ page.text }}</div>
+                            <div class="edit-controls">
+                                <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                            </div>
                         </div>
                     </div>
                 {% endfor %}

@@ -63,6 +63,56 @@
         margin-bottom: 20px;
         display: inline-block;
     }
+
+        .edit-mode-toggle {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+    }
+    
+    .edit-mode-toggle.active {
+        background-color: #28a745;
+    }
+    
+    .editable-annotation {
+        position: relative;
+        transition: background-color 0.2s;
+    }
+    
+    .editable-annotation.edit-mode {
+        background-color: #fff3cd;
+        cursor: text;
+        padding: 10px;
+        border: 1px dashed #ffc107;
+    }
+    
+    .edit-controls {
+        display: none;
+        margin-top: 10px;
+        gap: 10px;
+    }
+    
+    .edit-controls.active {
+        display: flex;
+    }
+    
+    .edit-textarea {
+        width: 100%;
+        min-height: 100px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: inherit;
+    }
 </style>
 {% endblock %}
 
@@ -110,4 +160,97 @@
         </div>
     {% endif %}
 </div>
+<button id="editModeToggle" class="edit-mode-toggle">Enable Editing</button>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let editMode = false;
+
+document.getElementById('editModeToggle').addEventListener('click', function() {
+    editMode = !editMode;
+    this.textContent = editMode ? 'Disable Editing' : 'Enable Editing';
+    this.classList.toggle('active', editMode);
+    
+    document.querySelectorAll('.editable-annotation').forEach(elem => {
+        elem.classList.toggle('edit-mode', editMode);
+    });
+});
+
+document.addEventListener('click', function(e) {
+    if (!editMode) return;
+    
+    const editableAnnotation = e.target.closest('.editable-annotation');
+    if (!editableAnnotation) return;
+    
+    const textContent = editableAnnotation.querySelector('.text-content');
+    const editControls = editableAnnotation.querySelector('.edit-controls');
+    const textarea = editableAnnotation.querySelector('.edit-textarea');
+    
+    if (textContent && !editControls.classList.contains('active')) {
+        textContent.style.display = 'none';
+        editControls.classList.add('active');
+        textarea.focus();
+    }
+});
+
+function saveAnnotation(button) {
+    const editableAnnotation = button.closest('.editable-annotation');
+    const textarea = editableAnnotation.querySelector('.edit-textarea');
+    const textContent = editableAnnotation.querySelector('.text-content');
+    const editControls = editableAnnotation.querySelector('.edit-controls');
+    
+    const annotationId = editableAnnotation.dataset.annotationId;
+    const newText = textarea.value;
+    
+    button.textContent = 'Saving...';
+    button.disabled = true;
+    
+    fetch('/api/update_annotation', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            annotation_id: parseInt(annotationId),
+            text: newText
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            textContent.textContent = newText;
+            textContent.style.display = 'block';
+            editControls.classList.remove('active');
+            
+            button.textContent = 'Saved!';
+            setTimeout(() => {
+                button.textContent = 'Save';
+                button.disabled = false;
+            }, 1000);
+        } else {
+            alert('Error saving: ' + data.message);
+            button.textContent = 'Save';
+            button.disabled = false;
+        }
+    })
+    .catch(error => {
+        alert('Error saving: ' + error);
+        button.textContent = 'Save';
+        button.disabled = false;
+    });
+}
+
+function cancelEdit(button) {
+    const editableAnnotation = button.closest('.editable-annotation');
+    const textContent = editableAnnotation.querySelector('.text-content');
+    const editControls = editableAnnotation.querySelector('.edit-controls');
+    const textarea = editableAnnotation.querySelector('.edit-textarea');
+    
+    textarea.value = textContent.textContent;
+    textContent.style.display = 'block';
+    editControls.classList.remove('active');
+}
+</script>
 {% endblock %}
