@@ -434,15 +434,15 @@ class QwenVLProcessor:
             with torch.amp.autocast('cuda', enabled=(self.device == "cuda")):
                 # Very explicit prompt about format
                 prompt = """
-                Find text that has a box or rectangle drawn around it.
-                
-                Output format instructions:
-                - List ONLY the text inside boxes
-                - Put each boxed text on a separate line
-                - Do NOT include any explanatory text
-                - Do NOT write "Here is the text" or similar phrases
-                - Do NOT include any text that isn't boxed
-                - If no boxed text is found, just write "NONE"
+                Find text that is surrounded by a GREEN hand-drawn box or rectangle.
+
+                Important rules:
+                - ONLY consider text inside GREEN hand-drawn boxes/rectangles
+                - Ignore boxes of any other color (blue, red, black, etc.)
+                - A box must completely enclose the text (all 4 sides)
+                - Return the complete text inside each GREEN box
+                - Do not treat newlines inside the same box as separate results
+                - If no green-boxed text is found, just write "NONE"
                 """
                 
                 messages = [{"role": "user", "content": [
