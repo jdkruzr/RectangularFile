@@ -366,3 +366,16 @@ input[type="number"], input[type="text"], select {
     color: #c2185b;
     text-decoration: underline;
 }
+
+/* Annotation type styles */
+.annotation-type-green_box {
+    background-color: #c8e6c9;
+    color: #1b5e20;
+    border: 1px solid #81c784;
+}
+
+.annotation-type-yellow_highlight {
+    background-color: #fff9c4;
+    color: #f57f17;
+    border: 1px solid #ffd54f;
+}

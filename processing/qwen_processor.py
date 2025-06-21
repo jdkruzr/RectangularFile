@@ -317,15 +317,15 @@ class QwenVLProcessor:
                     )
                     return True
 
-                self.logger.info("Starting second pass: Detecting annotations")
+                self.logger.info("Starting second pass: Detecting colored annotations")
                 db_manager.update_processing_progress(doc_id, 85.0, "Detecting annotations")
                 self._ensure_annotations_table(db_manager)
 
                 for i, image_for_annotations in enumerate(resized_images_for_processing):
                     page_num = i + 1
-                    self.logger.info(f"Detecting annotations on page {page_num}/{len(resized_images_for_processing)}")
-                    page_annotations = self._detect_boxed_text(image_for_annotations, page_num)
-                    annotations.extend(page_annotations) # annotations list is defined at the start of the method
+                    self.logger.info(f"Detecting colored annotations on page {page_num}/{len(resized_images_for_processing)}")
+                    page_annotations = self._detect_colored_annotations(image_for_annotations, page_num)
+                    annotations.extend(page_annotations)
                     if self.device == "cuda": torch.cuda.empty_cache()
                 
                 if annotations:
@@ -543,6 +543,123 @@ class QwenVLProcessor:
             
         except Exception as e:
             self.logger.error(f"Error detecting boxed text (INT8): {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return []
+
+    def _detect_colored_annotations(self, image: Image.Image, page_num: int) -> list:
+        """Detect both green boxed text and yellow highlighted text."""
+        annotations_found: List[Dict] = []
+        try:
+            self.logger.info(f"Detecting colored annotations on page {page_num}")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                import gc
+                gc.collect()
+            self._log_memory_usage("Start of annotation detection (after cleanup)")
+            
+            max_new_tokens = 150  # Increased slightly to handle more annotations
+            
+            with torch.amp.autocast('cuda', enabled=(self.device == "cuda")):
+                # Clear, focused prompt for both annotation types
+                prompt = """
+                Find text with these specific annotations:
+
+                1. GREEN BOX: Text surrounded by a GREEN hand-drawn box/rectangle
+                2. YELLOW HIGHLIGHT: Text that has YELLOW highlighting/background
+
+                Rules:
+                - Only report text that has one of these exact annotations
+                - Report each annotation on a separate line
+                - Annotations in a single box, rectangle or highlight region on multiple lines of text should be treated as a single annotation
+                - Format: [TYPE]: text here
+                - Use exactly [GREEN BOX]: or [YELLOW HIGHLIGHT]: as prefixes
+                - If no annotations found, respond with "NONE"
+
+                Example response:
+                [GREEN BOX]: Important meeting tomorrow
+                [YELLOW HIGHLIGHT]: Call John at 3pm
+                """
+                
+                messages = [{"role": "user", "content": [
+                    {"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, 
+                    {"type": "text", "text": prompt}
+                ]}]
+                
+                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                image_inputs_list, video_inputs_list = process_vision_info(messages)
+                
+                inputs_dict = self.processor(
+                    text=[text_prompt], 
+                    images=image_inputs_list, 
+                    videos=video_inputs_list, 
+                    padding=True, 
+                    return_tensors="pt"
+                )
+                inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
+                
+                self._log_memory_usage("Before generation")
+                with torch.no_grad():
+                    current_input_ids = inputs_dict_on_device['input_ids']
+                    generated_ids = self.model.generate(
+                        **inputs_dict_on_device,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=False,
+                        temperature=1.0,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                        use_cache=True,
+                        repetition_penalty=1.0
+                    )
+                    self._log_memory_usage("After generation")
+                    generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(current_input_ids, generated_ids)]
+                    output_text_list = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+                    response = output_text_list[0] if output_text_list else ""
+            
+            del inputs_dict, inputs_dict_on_device, generated_ids, generated_ids_trimmed, current_input_ids
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                import gc
+                gc.collect()
+            self._log_memory_usage("After cleanup")
+            
+            # Parse the response
+            lines = [line.strip() for line in response.split('\n') if line.strip()]
+            
+            for line in lines:
+                if line.upper() == "NONE" or not line:
+                    continue
+                    
+                # Parse annotation type and text
+                if line.startswith('[GREEN BOX]:'):
+                    text = line[12:].strip()  # Remove "[GREEN BOX]: "
+                    if text:
+                        annotations_found.append({
+                            'page_number': page_num,
+                            'annotation_type': 'green_box',
+                            'text': text,
+                            'confidence': 0.8
+                        })
+                elif line.startswith('[YELLOW HIGHLIGHT]:'):
+                    text = line[19:].strip()  # Remove "[YELLOW HIGHLIGHT]: "
+                    if text:
+                        annotations_found.append({
+                            'page_number': page_num,
+                            'annotation_type': 'yellow_highlight',
+                            'text': text,
+                            'confidence': 0.8
+                        })
+                else:
+                    # Log unexpected format but don't fail
+                    self.logger.warning(f"Unexpected annotation format: {line}")
+            
+            self.logger.info(f"Found {len(annotations_found)} annotations (green boxes and yellow highlights)")
+            return annotations_found
+            
+        except Exception as e:
+            self.logger.error(f"Error detecting colored annotations: {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return []
