@@ -27,9 +27,9 @@ Image.MAX_IMAGE_PIXELS = 200000000
 
 
 class QwenVLProcessor:
-    """Process PDF documents using Qwen2.5-VL-3B-Instruct for text recognition."""
+    """Process PDF documents using Qwen2.5-VL-7B-Instruct for text recognition."""
 
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-VL-3B-Instruct", use_cache: bool = True):
+    def __init__(self, model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct", use_cache: bool = True):
         """Initialize the Qwen VL processor with GPU support."""
         # Set cache directory
         os.environ['TRANSFORMERS_CACHE'] = '/mnt/rectangularfile/qwencache'
@@ -155,12 +155,13 @@ class QwenVLProcessor:
         return resized_image, original_path_str
 
     def _load_model(self):
-        """Load the model, tokenizer, and processor if not already loaded."""
+        """Load the model with INT8 quantization optimized for 16GB VRAM."""
         if self.model is None:
             try:
                 self.logger.info(f"Loading model: {self.model_name}")
                 start_time = time.time()
 
+                # Load tokenizer and processor
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     self.model_name,
                     trust_remote_code=True
@@ -174,30 +175,48 @@ class QwenVLProcessor:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
 
                 if self.device == "cuda":
-                    self.logger.info("Loading model with FP16 precision for GPU")
+                    # Import BitsAndBytes for quantization
+                    from transformers import BitsAndBytesConfig
+                    
+                    self.logger.info("Loading 7B model with INT8 quantization for 16GB VRAM")
+                    
+                    # Configure quantization for memory efficiency
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_8bit=True,
+                        llm_int8_threshold=6.0,
+                        llm_int8_has_fp16_weight=False
+                    )
+                    
+                    # Set conservative memory limits for 16GB card
+                    memory_map = {0: "12GB"}  # Reserve ~4GB for other operations
+                    
                     model_kwargs = {
                         "device_map": "auto",
                         "trust_remote_code": True,
-                        "torch_dtype": torch.float16,
-                        "max_memory": {0: "10GiB"}, 
+                        "quantization_config": quantization_config,
+                        "max_memory": memory_map,
                         "offload_folder": "offload_folder"
                     }
                 else:
-                    self.logger.info("Loading model for CPU inference (FP32 or default)")
+                    self.logger.info("Loading model for CPU inference")
                     model_kwargs = {
-                        "device_map": "auto", 
+                        "device_map": "auto",
                         "trust_remote_code": True,
                         "low_cpu_mem_usage": True
                     }
 
+                # Load the model
                 self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                     self.model_name,
                     **model_kwargs
                 )
+
+                # Put model in evaluation mode
                 self.model.eval()
-                self._log_memory_usage()
+
+                self._log_memory_usage("After model loading")
                 elapsed = time.time() - start_time
-                self.logger.info(f"Model loaded successfully in {elapsed:.2f} seconds")
+                self.logger.info(f"7B model loaded successfully in {elapsed:.2f} seconds")
                 return True
 
             except Exception as e:
@@ -351,7 +370,7 @@ class QwenVLProcessor:
             )
             inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
             
-            with torch.cuda.amp.autocast(enabled=(self.device == "cuda")):
+            with torch.amp.autocast('cuda', enabled=(self.device == "cuda")):
                 with torch.no_grad():
                     current_input_ids = inputs_dict_on_device['input_ids']
                     
@@ -382,22 +401,61 @@ class QwenVLProcessor:
             return ""
 
     def _detect_boxed_text(self, image: Image.Image, page_num: int) -> list:
+        """Detect boxed text with fallback for OOM errors."""
+        try:
+            return self._detect_boxed_text_impl(image, page_num)
+        except torch.cuda.OutOfMemoryError as e:
+            self.logger.warning(f"OOM error during annotation detection: {e}")
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            import gc
+            gc.collect()
+
+            # Try with an even smaller image
+            self.logger.info("Retrying with significantly smaller image")
+            small_size = (400, 400)  # Very small size for emergency fallback
+            small_image = image.resize(small_size, Image.LANCZOS)
+            return self._detect_boxed_text_impl(small_image, page_num)
+
+    def _detect_boxed_text_impl(self, image: Image.Image, page_num: int) -> list:
+        """Implementation of boxed text detection."""
         annotations_found: List[Dict] = []
         try:
-            self.logger.info(f"Detecting boxed text on page {page_num} (FP16)")
+            self.logger.info(f"Detecting boxed text on page {page_num} (INT8)")
             if self.device == "cuda":
                 torch.cuda.empty_cache(); torch.cuda.synchronize(); import gc; gc.collect()
-            self._log_memory_usage("Start of annotation detection (FP16, after cleanup)")
+            self._log_memory_usage("Start of annotation detection (INT8, after cleanup)")
             
-            with torch.cuda.amp.autocast(enabled=(self.device == "cuda")):
-                messages = [{"role": "user", "content": [{"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, {"type": "text", "text": "Transcribe only text you see with a box drawn around it."}]}]
+            # More efficient generation parameters for 7B model
+            max_new_tokens = 80  # Reduced from 100
+            repetition_penalty = 1.0
+            use_cache = True
+            
+            with torch.amp.autocast('cuda', enabled=(self.device == "cuda")):
+                # Very explicit prompt about format
+                prompt = """
+                Find text that has a box or rectangle drawn around it.
+                
+                Output format instructions:
+                - List ONLY the text inside boxes
+                - Put each boxed text on a separate line
+                - Do NOT include any explanatory text
+                - Do NOT write "Here is the text" or similar phrases
+                - Do NOT include any text that isn't boxed
+                - If no boxed text is found, just write "NONE"
+                """
+                
+                messages = [{"role": "user", "content": [
+                    {"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, 
+                    {"type": "text", "text": prompt}
+                ]}]
                 
                 text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                 
                 tokenized_prompt = self.tokenizer(text_prompt, return_tensors="pt")
                 input_token_count = tokenized_prompt.input_ids.shape[1]
                 del tokenized_prompt 
-                self.logger.info(f"Input token count (FP16): {input_token_count}")
+                self.logger.info(f"Input token count (INT8): {input_token_count}")
                 
                 image_inputs_list, video_inputs_list = process_vision_info(messages)
                 
@@ -410,21 +468,20 @@ class QwenVLProcessor:
                 )
                 inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
                 
-                self._log_memory_usage("Before generation (FP16)")
+                self._log_memory_usage("Before generation (INT8)")
                 with torch.no_grad():
                     current_input_ids = inputs_dict_on_device['input_ids']
                     generated_ids = self.model.generate(
                         **inputs_dict_on_device,
-                        max_new_tokens=100,
+                        max_new_tokens=max_new_tokens,
                         do_sample=False,
                         temperature=1.0,
                         pad_token_id=self.tokenizer.pad_token_id,
                         eos_token_id=self.tokenizer.eos_token_id,
-                        use_cache=True,
-                        repetition_penalty=1.0,
-                        max_length=input_token_count + 100
+                        use_cache=use_cache,
+                        repetition_penalty=repetition_penalty
                     )
-                    self._log_memory_usage("After generation (FP16)")
+                    self._log_memory_usage("After generation (INT8)")
                     generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(current_input_ids, generated_ids)]
                     output_text_list = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
                     response = output_text_list[0] if output_text_list else ""
@@ -432,20 +489,60 @@ class QwenVLProcessor:
             del inputs_dict, inputs_dict_on_device, generated_ids, generated_ids_trimmed, current_input_ids
             if self.device == "cuda":
                 torch.cuda.empty_cache(); torch.cuda.synchronize(); import gc; gc.collect()
-            self._log_memory_usage("After cleanup (FP16)")
+            self._log_memory_usage("After cleanup (INT8)")
             
+            # Enhanced filtering to remove explanatory preambles
             lines = [line.strip() for line in response.split('\n') if line.strip()]
-            for line in lines:
-                if line and len(line) > 3:
-                    annotations_found.append({'page_number': page_num, 'annotation_type': 'box', 'text': line.strip(), 'confidence': 0.8})
+            filtered_lines = []
             
-            self.logger.info(f"Found {len(annotations_found)} boxed text items on page {page_num} (FP16)")
+            # Common explanatory patterns to filter out
+            explanatory_patterns = [
+                "here is the text",
+                "here's the text",
+                "i found",
+                "i see",
+                "the boxed text",
+                "text inside",
+                "boxed text:",
+                "transcribed",
+                "transcription",
+                "surrounded by",
+                "enclosed in",
+                "with a box",
+                "drawn around"
+            ]
+            
+            for line in lines:
+                # Skip lines that match explanatory patterns
+                if any(pattern in line.lower() for pattern in explanatory_patterns):
+                    self.logger.info(f"Filtering explanatory line: '{line}'")
+                    continue
+                
+                # Skip "NONE" indicators
+                if line.strip().upper() == "NONE" or line.strip() == "N/A":
+                    self.logger.info("Model reported no boxed text found")
+                    continue
+                
+                # Skip very short lines
+                if len(line) < 3:
+                    continue
+                
+                filtered_lines.append(line)
+            
+            # Create annotations
+            for line in filtered_lines:
+                annotations_found.append({
+                    'page_number': page_num,
+                    'annotation_type': 'box',
+                    'text': line.strip(),
+                    'confidence': 0.5
+                })
+            
+            self.logger.info(f"Found {len(annotations_found)} boxed text items after filtering")
             return annotations_found
             
         except Exception as e:
-            self.logger.error(f"Error detecting boxed text (FP16): {e}")
+            self.logger.error(f"Error detecting boxed text (INT8): {e}")
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return []
-
-# _process_image method is commented out as per previous user action
