@@ -4,6 +4,79 @@
 
 {% block additional_styles %}
 <style>
+    .edit-mode-toggle {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+    }
+    
+    .edit-mode-toggle.active {
+        background-color: #28a745;
+    }
+    
+    .editable-text {
+        position: relative;
+        transition: background-color 0.2s;
+    }
+    
+    .editable-text.edit-mode {
+        background-color: #fff3cd;
+        cursor: text;
+        padding: 10px;
+        border: 1px dashed #ffc107;
+    }
+    
+    .editable-text.edit-mode:hover {
+        background-color: #ffeaa7;
+    }
+    
+    .edit-controls {
+        display: none;
+        margin-top: 10px;
+        gap: 10px;
+    }
+    
+    .edit-controls.active {
+        display: flex;
+    }
+    
+    .edit-textarea {
+        width: 100%;
+        min-height: 200px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: inherit;
+        line-height: 1.6;
+    }
+    
+    .save-edit-btn, .cancel-edit-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .save-edit-btn {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .cancel-edit-btn {
+        background-color: #6c757d;
+        color: white;
+    }
+</style>
+<style>
     .document-container {
         margin-top: 20px;
     }
@@ -317,6 +390,8 @@
             {% endif %}
         </div>
         
+        <button id="editModeToggle" class="edit-mode-toggle">Enable Editing</button>
+
         <!-- Image Only Tab -->
         <div id="image-only" class="tab-content">
             {% if text_content %}
@@ -356,7 +431,18 @@
                             </div>
                             <div class="comparison-column">
                                 <h4>OCR Text</h4>
-                                <div class="page-text">{{ ocr_content[page_num].text }}</div>
+                                <div class="page-text editable-text" 
+                                    id="page-{{ page_num }}"
+                                    data-doc-id="{{ document.id }}"
+                                    data-page-num="{{ page_num }}"
+                                    data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                                    <div class="text-content">{{ page.text }}</div>
+                                    <div class="edit-controls">
+                                        <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                        <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                        <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -370,6 +456,110 @@
 
 {% block scripts %}
 <script>
+
+    // Add to the scripts block
+    let editMode = false;
+
+    document.getElementById('editModeToggle').addEventListener('click', function() {
+        editMode = !editMode;
+        this.textContent = editMode ? 'Disable Editing' : 'Enable Editing';
+        this.classList.toggle('active', editMode);
+        
+        // Toggle edit mode on all editable elements
+        document.querySelectorAll('.editable-text').forEach(elem => {
+            elem.classList.toggle('edit-mode', editMode);
+        });
+    });
+
+    // Make text editable on click
+    document.addEventListener('click', function(e) {
+        if (!editMode) return;
+        
+        const editableText = e.target.closest('.editable-text');
+        if (!editableText) return;
+        
+        const textContent = editableText.querySelector('.text-content');
+        const editControls = editableText.querySelector('.edit-controls');
+        const textarea = editableText.querySelector('.edit-textarea');
+        
+        if (textContent && !editControls.classList.contains('active')) {
+            textContent.style.display = 'none';
+            editControls.classList.add('active');
+            textarea.focus();
+            
+            // Set cursor at end
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }
+    });
+
+    function saveTranscription(button) {
+        const editableText = button.closest('.editable-text');
+        const textarea = editableText.querySelector('.edit-textarea');
+        const textContent = editableText.querySelector('.text-content');
+        const editControls = editableText.querySelector('.edit-controls');
+        
+        const docId = editableText.dataset.docId;
+        const pageNum = editableText.dataset.pageNum;
+        const fieldType = editableText.dataset.fieldType;
+        const newText = textarea.value;
+        
+        // Show loading state
+        button.textContent = 'Saving...';
+        button.disabled = true;
+        
+        fetch('/api/update_transcription', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                doc_id: parseInt(docId),
+                page_number: parseInt(pageNum),
+                text: newText,
+                field_type: fieldType
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update the display
+                textContent.textContent = newText;
+                textContent.style.display = 'block';
+                editControls.classList.remove('active');
+                
+                // Show success briefly
+                button.textContent = 'Saved!';
+                setTimeout(() => {
+                    button.textContent = 'Save';
+                    button.disabled = false;
+                }, 1000);
+            } else {
+                alert('Error saving: ' + data.message);
+                button.textContent = 'Save';
+                button.disabled = false;
+            }
+        })
+        .catch(error => {
+            alert('Error saving: ' + error);
+            button.textContent = 'Save';
+            button.disabled = false;
+        });
+    }
+
+    function cancelEdit(button) {
+        const editableText = button.closest('.editable-text');
+        const textContent = editableText.querySelector('.text-content');
+        const editControls = editableText.querySelector('.edit-controls');
+        const textarea = editableText.querySelector('.edit-textarea');
+        
+        // Reset textarea to original value
+        textarea.value = textContent.textContent;
+        
+        // Hide edit controls
+        textContent.style.display = 'block';
+        editControls.classList.remove('active');
+    }
+
     // Tab switching
     document.addEventListener('DOMContentLoaded', function() {
         const tabButtons = document.querySelectorAll('.tab-button');

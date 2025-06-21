@@ -1,5 +1,6 @@
 # app/routes.py
 import os
+import datetime
 from pathlib import Path
 from flask import render_template, jsonify, request, redirect, url_for, send_file
 from utils.helpers import calculate_processing_progress
@@ -1012,4 +1013,100 @@ def register_routes(app):
             app.logger.error(traceback.format_exc())
             return jsonify(error=str(e)), 500
     
+    @app.route('/api/update_transcription', methods=['POST'])
+    def update_transcription():
+        """Update the transcription for a specific page."""
+        try:
+            data = request.json
+            doc_id = data.get('doc_id')
+            page_number = data.get('page_number')
+            new_text = data.get('text')
+            field_type = data.get('field_type', 'ocr_text')  # or 'text_content'
+            
+            if not all([doc_id, page_number, new_text is not None]):
+                return jsonify(success=False, message="Missing required fields"), 400
+            
+            # Get current text for history
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT {} FROM pdf_text_content 
+                    WHERE pdf_id = ? AND page_number = ?
+                """.format(field_type), (doc_id, page_number))
+                
+                current = cursor.fetchone()
+                if not current:
+                    return jsonify(success=False, message="Page not found"), 404
+                
+                original_text = current[0]
+                
+                # Update the text
+                cursor.execute("""
+                    UPDATE pdf_text_content 
+                    SET {} = ?, processed_at = ?
+                    WHERE pdf_id = ? AND page_number = ?
+                """.format(field_type), (new_text, datetime.now(), doc_id, page_number))
+                
+                # Record in history
+                cursor.execute("""
+                    INSERT INTO edit_history 
+                    (doc_id, page_number, field_type, original_text, edited_text)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (doc_id, page_number, 'transcription', original_text, new_text))
+                
+                conn.commit()
+                
+            return jsonify(success=True, message="Transcription updated successfully")
+            
+        except Exception as e:
+            app.logger.error(f"Error updating transcription: {e}")
+            return jsonify(success=False, message=str(e)), 500
+
+    @app.route('/api/update_annotation', methods=['POST'])
+    def update_annotation():
+        """Update an annotation."""
+        try:
+            data = request.json
+            annotation_id = data.get('annotation_id')
+            new_text = data.get('text')
+            
+            if not all([annotation_id, new_text is not None]):
+                return jsonify(success=False, message="Missing required fields"), 400
+            
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get current annotation
+                cursor.execute("""
+                    SELECT doc_id, page_number, text 
+                    FROM document_annotations 
+                    WHERE id = ?
+                """, (annotation_id,))
+                
+                current = cursor.fetchone()
+                if not current:
+                    return jsonify(success=False, message="Annotation not found"), 404
+                
+                # Update annotation
+                cursor.execute("""
+                    UPDATE document_annotations 
+                    SET text = ?
+                    WHERE id = ?
+                """, (new_text, annotation_id))
+                
+                # Record in history
+                cursor.execute("""
+                    INSERT INTO edit_history 
+                    (doc_id, page_number, field_type, annotation_id, original_text, edited_text)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (current['doc_id'], current['page_number'], 'annotation', 
+                    annotation_id, current['text'], new_text))
+                
+                conn.commit()
+                
+            return jsonify(success=True, message="Annotation updated successfully")
+            
+        except Exception as e:
+            app.logger.error(f"Error updating annotation: {e}")
+            return jsonify(success=False, message=str(e)), 500
     return app

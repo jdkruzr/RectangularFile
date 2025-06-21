@@ -86,8 +86,15 @@
                     </span>
                 </div>
                 
-                <div class="annotation-text">
-                    {{ annotation.text }}
+                <!-- editing functionality for annotations -->
+                <div class="annotation-text editable-annotation" 
+                    data-annotation-id="{{ annotation.id }}">
+                    <div class="text-content">{{ annotation.text }}</div>
+                    <div class="edit-controls">
+                        <textarea class="edit-textarea">{{ annotation.text }}</textarea>
+                        <button class="save-edit-btn" onclick="saveAnnotation(this)">Save</button>
+                        <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                    </div>
                 </div>
                 
                 <div class="annotation-meta">

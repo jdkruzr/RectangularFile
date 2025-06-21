@@ -130,7 +130,22 @@ class SchemaManager:
                     FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
                     FOREIGN KEY (topic_id) REFERENCES topics(id)
                 )
-            """
+            """,
+            "edit_history": """
+                CREATE TABLE IF NOT EXISTS edit_history (
+                    id INTEGER PRIMARY KEY,
+                    doc_id INTEGER,
+                    page_number INTEGER,
+                    field_type TEXT, -- 'transcription' or 'annotation'
+                    annotation_id INTEGER NULL, -- if editing an annotation
+                    original_text TEXT,
+                    edited_text TEXT,
+                    edited_by TEXT DEFAULT 'user',
+                    edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
+                    FOREIGN KEY (annotation_id) REFERENCES document_annotations(id)
+                )
+            """            
         }
     
     def get_indexes(self) -> Dict[str, str]:
