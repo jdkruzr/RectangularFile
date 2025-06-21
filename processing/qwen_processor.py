@@ -570,11 +570,11 @@ class QwenVLProcessor:
                 2. YELLOW HIGHLIGHT: Text that has YELLOW highlighting/background
 
                 Rules:
-                - Only report text that has one of these exact annotations
-                - Report each annotation on a separate line
-                - Annotations in a single box, rectangle or highlight region on multiple lines of text should be treated as a single annotation
+                - Report EACH annotation separately, even if text has multiple annotations
+                - If text has both green box AND yellow highlight, report it twice:
+                [GREEN BOX]: text here
+                [YELLOW HIGHLIGHT]: same text here
                 - Format: [TYPE]: text here
-                - Use exactly [GREEN BOX]: or [YELLOW HIGHLIGHT]: as prefixes
                 - If no annotations found, respond with "NONE"
 
                 Example response:
