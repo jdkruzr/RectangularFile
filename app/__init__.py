@@ -30,7 +30,10 @@ def create_app(
     app.config.update(
         UPLOAD_FOLDER="/mnt/onyx",
         MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50MB max upload
-        SECRET_KEY=os.environ.get('SECRET_KEY', 'your-default-secret-key-change-this')
+        SECRET_KEY=os.environ.get('SECRET_KEY', 'your-default-secret-key-change-this'),
+        SESSION_COOKIE_NAME='rectangularfile_session',
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax'
     )
     
     # Initialize Flask-Login AFTER app is created

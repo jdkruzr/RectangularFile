@@ -25,19 +25,22 @@ def register_routes(app):
             # Hash the provided password
             password_hash = hashlib.sha256(password.encode()).hexdigest()
             
-            # TEMPORARY DEBUG - Show in the UI
-            if password == 'debug':
-                flash(f'Expected: {PASSWORD_HASH[:10]}...', 'error')
-                flash(f'Your password "{password}" hashes to: {password_hash[:10]}...', 'error')
-                return render_template('login.html')
-            
             if password_hash == PASSWORD_HASH:
-                user = app.User('admin')
-                login_user(user)
-                
-                # Redirect to the page they were trying to access, or home
-                next_page = request.args.get('next')
-                return redirect(next_page or url_for('index'))
+                try:
+                    user = app.User('admin')
+                    login_user(user)
+                    
+                    # Add explicit logging
+                    app.logger.info("Login successful for admin user")
+                    
+                    # Redirect to the page they were trying to access, or home
+                    next_page = request.args.get('next')
+                    app.logger.info(f"Redirecting to: {next_page or url_for('index')}")
+                    
+                    return redirect(next_page or url_for('index'))
+                except Exception as e:
+                    app.logger.error(f"Error during login: {e}")
+                    flash(f'Login error: {str(e)}', 'error')
             else:
                 flash('Invalid password', 'error')
         
