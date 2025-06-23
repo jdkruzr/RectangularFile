@@ -25,21 +25,32 @@ def register_routes(app):
             # Hash the provided password
             password_hash = hashlib.sha256(password.encode()).hexdigest()
             
+            # Debug: Check if User class exists
+            if not hasattr(app, 'User'):
+                flash('Configuration error: User class not found', 'error')
+                app.logger.error("User class not attached to app!")
+                return render_template('login.html')
+            
             if password_hash == PASSWORD_HASH:
                 try:
                     user = app.User('admin')
-                    login_user(user)
+                    if not user:
+                        flash('Failed to create user object', 'error')
+                        return render_template('login.html')
+                        
+                    result = login_user(user)
+                    app.logger.info(f"login_user result: {result}")
                     
-                    # Add explicit logging
-                    app.logger.info("Login successful for admin user")
-                    
-                    # Redirect to the page they were trying to access, or home
-                    next_page = request.args.get('next')
-                    app.logger.info(f"Redirecting to: {next_page or url_for('index')}")
-                    
-                    return redirect(next_page or url_for('index'))
+                    if result:
+                        # Successful login
+                        next_page = request.args.get('next')
+                        return redirect(next_page or url_for('index'))
+                    else:
+                        flash('Login failed - session issue', 'error')
                 except Exception as e:
-                    app.logger.error(f"Error during login: {e}")
+                    app.logger.error(f"Login exception: {str(e)}")
+                    import traceback
+                    app.logger.error(traceback.format_exc())
                     flash(f'Login error: {str(e)}', 'error')
             else:
                 flash('Invalid password', 'error')
