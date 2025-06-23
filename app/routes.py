@@ -25,9 +25,11 @@ def register_routes(app):
             # Hash the provided password
             password_hash = hashlib.sha256(password.encode()).hexdigest()
             
-            # TEMPORARY DEBUG
-            app.logger.info(f"Expected hash: {PASSWORD_HASH}")
-            app.logger.info(f"Provided hash: {password_hash}")
+            # TEMPORARY DEBUG - Show in the UI
+            if password == 'debug':
+                flash(f'Expected: {PASSWORD_HASH[:10]}...', 'error')
+                flash(f'Your password "{password}" hashes to: {password_hash[:10]}...', 'error')
+                return render_template('login.html')
             
             if password_hash == PASSWORD_HASH:
                 user = app.User('admin')
