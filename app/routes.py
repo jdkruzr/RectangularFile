@@ -13,7 +13,7 @@ def register_routes(app):
     # Configure password from environment or use default
     PASSWORD_HASH = os.environ.get('APP_PASSWORD_HASH', 
         # Default password is "changeme" - SHA256 hash
-        'c85f0c92ca63e2e6c6fed89c6837eb5bec53f8dd7dbdcc712c202cf524f46bb0'
+        '0b77c7e3e9ea690521e6e2abd08055b4eb6e1fa7919540e8db42f9e31bbabb08'
     )
     
     @app.route('/login', methods=['GET', 'POST'])
