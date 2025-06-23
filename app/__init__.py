@@ -34,10 +34,10 @@ def create_app(
     )
     
     # Initialize Flask-Login AFTER app is created
-    login_manager = LoginManager()
-    login_manager.init_app(app)
-    login_manager.login_view = 'login'
-    login_manager.login_message = 'Please log in to access this page.'
+    app.login_manager = LoginManager()
+    app.login_manager.init_app(app)
+    app.login_manager.login_view = 'login'
+    app.login_manager.login_message = 'Please log in to access this page.'
     
     # Simple user class for single user
     from flask_login import UserMixin
@@ -46,7 +46,7 @@ def create_app(
         def __init__(self, id):
             self.id = id
     
-    @login_manager.user_loader
+    @app.login_manager.user_loader
     def load_user(user_id):
         if user_id == "admin":
             return User(user_id)
