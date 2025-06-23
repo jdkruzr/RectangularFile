@@ -15,7 +15,7 @@ def register_routes(app):
     # Configure password from environment or use default
     PASSWORD_HASH = os.environ.get('APP_PASSWORD_HASH', 
         # Default password is "changeme" - SHA256 hash
-        '0b77c7e3e9ea690521e6e2abd08055b4eb6e1fa7919540e8db42f9e31bbabb08'
+        'e8c3a5a189478215a016d16f5abf3e643c3a6ba2d286dcb779aa891004fd1c41'
     )
     
     print(f"LOADED PASSWORD HASH: {PASSWORD_HASH}", file=sys.stderr)
