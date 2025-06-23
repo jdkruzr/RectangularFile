@@ -12,6 +12,22 @@ Basically, think "what if Paperless-ngx, but it didn't vomit when asked to look 
 
 You could conceivably use this with notes from any device -- Kindle Scribe, reMarkable, etc.
 
+## Deployment Details
+
+For authentication, you'll want to add these environment variables to your systemd unit file.
+
+**Generate a secure secret key**
+
+python -c 'import secrets; print(secrets.token_hex(32))'
+
+Put the above into your unit file with ENVIRONMENT=SECRET_KEY=[output of the above]
+
+**Generate password hash (replace 'yourpassword' with your actual password)**
+
+python -c "import hashlib; print(hashlib.sha256('yourpassword'.encode()).hexdigest())"
+
+Put the above into your unit file with ENVIRONMENT=APP_PASSWORD_HASH=[output of the above]
+
 ## System Dependencies
 
 Before installing the Python requirements, you need to install these system packages:

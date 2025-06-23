@@ -3,6 +3,7 @@ import os
 import json
 from pathlib import Path
 from flask import Flask
+from flask_login import LoginManager
 
 def create_app(
     db_manager, 
@@ -29,6 +30,31 @@ def create_app(
     # Get the absolute path to the templates directory
     template_dir = os.path.abspath('app/templates')
     static_dir = os.path.abspath('app/static')
+    
+    # Configure secret key for sessions
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-default-secret-key-change-this')
+    
+    # Initialize Flask-Login
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'login'
+    login_manager.login_message = 'Please log in to access this page.'
+    
+    # Simple user class for single user
+    from flask_login import UserMixin
+    
+    class User(UserMixin):
+        def __init__(self, id):
+            self.id = id
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        if user_id == "admin":
+            return User(user_id)
+        return None
+    
+    # Store the user class on app for routes to use
+    app.User = User
     
     app = Flask(
         __name__, 

@@ -2,13 +2,50 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from flask import render_template, jsonify, request, redirect, url_for, send_file
+from flask import render_template, flash, jsonify, request, redirect, url_for, send_file
 from utils.helpers import calculate_processing_progress
+from flask_login import login_user, logout_user, login_required, current_user
+import hashlib
 
 def register_routes(app):
     """Register Flask application routes."""
 
+    # Configure password from environment or use default
+    PASSWORD_HASH = os.environ.get('APP_PASSWORD_HASH', 
+        # Default password is "changeme" - SHA256 hash
+        'c85f0c92ca63e2e6c6fed89c6837eb5bec53f8dd7dbdcc712c202cf524f46bb0'
+    )
+    
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        """Login page."""
+        if request.method == 'POST':
+            password = request.form.get('password', '')
+            
+            # Hash the provided password
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            
+            if password_hash == PASSWORD_HASH:
+                user = app.User('admin')
+                login_user(user)
+                
+                # Redirect to the page they were trying to access, or home
+                next_page = request.args.get('next')
+                return redirect(next_page or url_for('index'))
+            else:
+                flash('Invalid password', 'error')
+        
+        return render_template('login.html')
+    
+    @app.route('/logout')
+    @login_required
+    def logout():
+        """Logout the user."""
+        logout_user()
+        return redirect(url_for('login'))
+
     @app.route('/')
+    @login_required
     def index():
         """Render the main page."""
         return render_template('index.html',
@@ -16,11 +53,13 @@ def register_routes(app):
                               polling_interval=app.file_watcher.polling_interval)
     
     @app.route('/settings/page')
+    @login_required
     def settings_page():
         """Render the settings page."""
         return render_template('settings.html')
     
     @app.route('/reset/<int:doc_id>')
+    @login_required
     def reset_processing(doc_id):
         """Reset processing status for a document by ID and trigger reprocessing."""
         document = app.db.get_document_by_id(doc_id)
@@ -40,6 +79,7 @@ def register_routes(app):
         return jsonify(success=False, message="Failed to reset status"), 400
 
     @app.route('/reset_file')
+    @login_required
     def reset_file():
         """Reset processing status for a document by its path."""
         file_path = request.args.get('path')
@@ -119,11 +159,13 @@ def register_routes(app):
         return jsonify(success=False, message="Failed to reset status"), 400
 
     @app.route('/ocr_queue')
+    @login_required
     def ocr_queue_status():
         """Get the status of the OCR processing queue."""
         return jsonify(app.ocr_queue.get_queue_status())
 
     @app.route('/files')
+    @login_required
     def get_files():
         """Get status of all files."""
         status = request.args.get('status')
@@ -176,12 +218,14 @@ def register_routes(app):
         )
 
     @app.route('/new_files')
+    @login_required
     def get_new_files():
         """Get lists of new and removed files."""
         new_discovered, removed_discovered = app.file_watcher.scan_now()
         return jsonify(new_files=new_discovered, removed_files=removed_discovered)
 
     @app.route('/scan')
+    @login_required    
     def scan_files():
         """Manually trigger a file scan."""
         new_discovered, removed_discovered = app.file_watcher.scan_now()
@@ -197,6 +241,7 @@ def register_routes(app):
         return jsonify(new_files=new_discovered, removed_files=removed_discovered)
 
     @app.route('/settings', methods=['GET', 'POST'])
+    @login_required
     def settings():
         """Get or update application settings."""
         if request.method == 'POST':
@@ -222,6 +267,7 @@ def register_routes(app):
             )
 
     @app.route('/settings/files', methods=['POST'])
+    @login_required
     def update_file_settings():
         """Update file type settings."""
         try:
@@ -235,6 +281,7 @@ def register_routes(app):
             return jsonify(success=False, message=f"Error updating file types: {str(e)}"), 400
 
     @app.route('/search')
+    @login_required
     def search_page():
         """Render the search page with folder filtering."""
         query = request.args.get('q', '')
@@ -348,6 +395,7 @@ def register_routes(app):
         )
 
     @app.route('/view/<int:doc_id>')
+    @login_required
     def view_document(doc_id):
         """Redirect to the unified document viewer."""
         highlight = request.args.get('highlight', '')
@@ -356,6 +404,7 @@ def register_routes(app):
         return redirect(url_for('document_viewer', doc_id=doc_id))
 
     @app.route('/document_image/<int:doc_id>/<int:page_num>')
+    @login_required
     def document_image(doc_id, page_num):
         """Serve a document page image."""
         document = app.db.get_document_by_id(doc_id)
@@ -373,11 +422,13 @@ def register_routes(app):
         return send_file(image_path, mimetype='image/jpeg')
 
     @app.route('/files/<int:doc_id>')
+    @login_required
     def document_inspector(doc_id):
         """Redirect to the unified document viewer."""
         return redirect(url_for('document_viewer', doc_id=doc_id))
 
     @app.route('/folders')
+    @login_required
     def folder_browser():
         """Browse documents by folder structure."""
         folder = request.args.get('path', '')
@@ -440,6 +491,7 @@ def register_routes(app):
             return render_template('error.html', message=f"Error browsing folders: {str(e)}"), 500
 
     @app.route('/document/<int:doc_id>')
+    @login_required
     def document_viewer(doc_id):
         """Unified document viewer that combines inspection and viewing."""
         highlight = request.args.get('highlight', '')
@@ -507,6 +559,7 @@ def register_routes(app):
         )
 
     @app.route('/reprocess_all_pending')
+    @login_required
     def reprocess_all_pending():
         """Reprocess all documents with pending status."""
         try:
@@ -574,6 +627,7 @@ def register_routes(app):
             return jsonify(success=False, message=f"Error: {str(e)}"), 500
                         
     @app.route('/fix_html_file')
+    @login_required
     def fix_html_file():
         """Fix an HTML file that might be in a bad state."""
         try:
@@ -654,6 +708,7 @@ def register_routes(app):
             return jsonify(success=False, message=f"Unexpected error: {str(e)}"), 500
 
     @app.route('/fix_pdf_file')
+    @login_required
     def fix_pdf_file():
         """Fix a PDF file that might be in a bad state."""
         try:
@@ -742,6 +797,7 @@ def register_routes(app):
             return jsonify(success=False, message=f"Unexpected error: {str(e)}"), 500
 
     @app.route('/document/<int:doc_id>/annotations')
+    @login_required
     def document_annotations(doc_id):
         """View annotations for a document."""
         document = app.db.get_document_by_id(doc_id)
@@ -771,6 +827,7 @@ def register_routes(app):
         )
 
     @app.route('/wordcloud')
+    @login_required
     def wordcloud_page():
         """Render the word cloud page with automatically detected cross-device categories."""
         # Get all folders for filtering
@@ -853,6 +910,7 @@ def register_routes(app):
         )
 
     @app.route('/generate_wordcloud')
+    @login_required
     def generate_wordcloud_image():
         """Generate and return a word cloud image."""
         from utils.wordcloud import get_document_texts, process_text_for_wordcloud, generate_wordcloud
@@ -1014,6 +1072,7 @@ def register_routes(app):
             return jsonify(error=str(e)), 500
     
     @app.route('/api/update_transcription', methods=['POST'])
+    @login_required
     def update_transcription():
         """Update the transcription for a specific page."""
         try:
@@ -1063,6 +1122,7 @@ def register_routes(app):
             return jsonify(success=False, message=str(e)), 500
 
     @app.route('/api/update_annotation', methods=['POST'])
+    @login_required
     def update_annotation():
         """Update an annotation."""
         try:
