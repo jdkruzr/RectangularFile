@@ -15,26 +15,25 @@ def create_app(
 ):
     """
     Application factory.
-    
-    Args:
-        db_manager: Database manager instance
-        file_watcher: File watcher instance
-        pdf_processor: PDF processor instance
-        ocr_processor: OCR processor instance
-        ocr_queue: OCR queue manager instance
-        html_processor: HTML processor instance (optional)
-        
-    Returns:
-        Flask application instance
     """
     # Get the absolute path to the templates directory
     template_dir = os.path.abspath('app/templates')
     static_dir = os.path.abspath('app/static')
     
-    # Configure secret key for sessions
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-default-secret-key-change-this')
+    app = Flask(
+        __name__, 
+        template_folder=template_dir,
+        static_folder=static_dir
+    )
     
-    # Initialize Flask-Login
+    # Configure app
+    app.config.update(
+        UPLOAD_FOLDER="/mnt/onyx",
+        MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50MB max upload
+        SECRET_KEY=os.environ.get('SECRET_KEY', 'your-default-secret-key-change-this')
+    )
+    
+    # Initialize Flask-Login AFTER app is created
     login_manager = LoginManager()
     login_manager.init_app(app)
     login_manager.login_view = 'login'
