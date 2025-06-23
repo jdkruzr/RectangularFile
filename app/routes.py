@@ -16,6 +16,8 @@ def register_routes(app):
         '0b77c7e3e9ea690521e6e2abd08055b4eb6e1fa7919540e8db42f9e31bbabb08'
     )
     
+    print(f"LOADED PASSWORD HASH: {PASSWORD_HASH}", file=sys.stderr)
+    
     @app.route('/login', methods=['GET', 'POST'])
     def login():
         """Login page."""
