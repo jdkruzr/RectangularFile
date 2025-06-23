@@ -55,18 +55,6 @@ def create_app(
     # Store the user class on app for routes to use
     app.User = User
     
-    app = Flask(
-        __name__, 
-        template_folder=template_dir,
-        static_folder=static_dir
-    )
-    
-    # Configure app
-    app.config.update(
-        UPLOAD_FOLDER="/mnt/onyx",
-        MAX_CONTENT_LENGTH=50 * 1024 * 1024  # 50MB max upload
-    )
-    
     # Register components with app
     app.db = db_manager
     app.file_watcher = file_watcher
