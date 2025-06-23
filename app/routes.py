@@ -6,6 +6,8 @@ from flask import render_template, flash, jsonify, request, redirect, url_for, s
 from utils.helpers import calculate_processing_progress
 from flask_login import login_user, logout_user, login_required, current_user
 import hashlib
+import sys
+
 
 def register_routes(app):
     """Register Flask application routes."""
