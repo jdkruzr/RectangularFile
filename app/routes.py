@@ -1186,4 +1186,86 @@ def register_routes(app):
         except Exception as e:
             app.logger.error(f"Error updating annotation: {e}")
             return jsonify(success=False, message=str(e)), 500
+        
+    @app.route('/annotations')
+    @login_required
+    def annotations_overview():
+        """View all annotations across documents with filtering."""
+        # Get filter parameters
+        annotation_type = request.args.get('type', '')  # 'green_box', 'yellow_highlight', or ''
+        date_from = request.args.get('from', '')
+        date_to = request.args.get('to', '')
+        
+        # Build query
+        query = """
+            SELECT 
+                a.id,
+                a.doc_id,
+                a.page_number,
+                a.annotation_type,
+                a.text,
+                a.confidence,
+                a.created_at,
+                d.filename,
+                d.folder_path,
+                d.file_created_at
+            FROM document_annotations a
+            JOIN pdf_documents d ON a.doc_id = d.id
+            WHERE d.processing_status != 'removed'
+        """
+        
+        params = []
+        
+        # Filter by annotation type
+        if annotation_type:
+            query += " AND a.annotation_type = ?"
+            params.append(annotation_type)
+        
+        # Filter by date range (using file creation date)
+        if date_from:
+            query += " AND DATE(d.file_created_at) >= DATE(?)"
+            params.append(date_from)
+        
+        if date_to:
+            query += " AND DATE(d.file_created_at) <= DATE(?)"
+            params.append(date_to)
+        
+        query += " ORDER BY d.file_created_at DESC, a.page_number"
+        
+        annotations = []
+        annotation_counts = {'green_box': 0, 'yellow_highlight': 0}
+        
+        try:
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                
+                for row in cursor.fetchall():
+                    annotations.append(dict(row))
+                    
+                # Get counts by type
+                cursor.execute("""
+                    SELECT annotation_type, COUNT(*) as count
+                    FROM document_annotations a
+                    JOIN pdf_documents d ON a.doc_id = d.id
+                    WHERE d.processing_status != 'removed'
+                    GROUP BY annotation_type
+                """)
+                
+                for row in cursor.fetchall():
+                    if row['annotation_type'] in annotation_counts:
+                        annotation_counts[row['annotation_type']] = row['count']
+                        
+        except Exception as e:
+            app.logger.error(f"Error fetching annotations: {e}")
+        
+        return render_template(
+            'annotations_overview.html',
+            annotations=annotations,
+            annotation_counts=annotation_counts,
+            current_type=annotation_type,
+            date_from=date_from,
+            date_to=date_to
+        )
+                
     return app
