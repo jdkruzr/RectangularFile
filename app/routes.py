@@ -1287,8 +1287,8 @@ def register_routes(app):
         if category_filter:
             # Get all folders matching this category
             matching_folders = []
-            app.logger.info(f"Looking for category: '{category_filter}'")
-            app.logger.info(f"All available folders: {all_folders}")
+            print(f"ANNOTATION DEBUG: Looking for category: '{category_filter}'", file=sys.stderr)
+            print(f"ANNOTATION DEBUG: Total folders available: {len(all_folders)}", file=sys.stderr)
             
             for folder in all_folders:
                 # Split the folder into parts
@@ -1296,12 +1296,11 @@ def register_routes(app):
                 # Check if the category appears anywhere in the path
                 if category_filter in parts:
                     matching_folders.append(folder)
-                    app.logger.info(f"  MATCH: '{folder}' contains '{category_filter}'")
-                else:
-                    # Log why it didn't match
-                    app.logger.info(f"  NO MATCH: '{folder}' parts are {parts}")
+                    print(f"ANNOTATION DEBUG: MATCH: '{folder}' contains '{category_filter}'", file=sys.stderr)
             
-            app.logger.info(f"Total matching folders: {len(matching_folders)}")
+            print(f"ANNOTATION DEBUG: Total matching folders: {len(matching_folders)}", file=sys.stderr)
+            if matching_folders:
+                print(f"ANNOTATION DEBUG: Matching folders: {matching_folders}", file=sys.stderr)
             
             if matching_folders:
                 placeholders = ','.join(['?' for _ in matching_folders])
@@ -1310,7 +1309,8 @@ def register_routes(app):
             else:
                 # If no folders match, we'll get no results
                 query += " AND 1=0"  # Force no results
-                app.logger.info("No matching folders found - forcing empty result set")      
+                print("ANNOTATION DEBUG: No matching folders found - forcing empty result set", file=sys.stderr)
+                    
                                  
         # Filter by date range (using file creation date)
         if date_from:
