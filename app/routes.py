@@ -1223,6 +1223,15 @@ def register_routes(app):
             """)
             for row in doc_cursor.fetchall():
                 print(f"ANNOTATION DEBUG: Doc 273 in folder '{row['folder_path']}' has {row['count']} '{row['annotation_type']}' annotations", file=sys.stderr)
+            # DEBUG: Check document 273's full path info
+            path_cursor = conn.cursor()
+            path_cursor.execute("""
+                SELECT id, filename, relative_path, folder_path
+                FROM pdf_documents
+                WHERE id = 273
+            """)
+            for row in path_cursor.fetchall():
+                print(f"ANNOTATION DEBUG: Doc 273 - filename: '{row['filename']}', relative_path: '{row['relative_path']}', folder_path: '{row['folder_path']}'", file=sys.stderr)
                 
         # First, get all folders for category building (same as search/wordcloud)
         all_folders = []
