@@ -1304,6 +1304,20 @@ def register_routes(app):
             
             if matching_folders:
                 placeholders = ','.join(['?' for _ in matching_folders])
+                
+                # DEBUG: Check what annotations exist in these folders
+                print(f"ANNOTATION DEBUG: Checking annotations in Moffitt folders...", file=sys.stderr)
+                debug_cursor = conn.cursor()
+                debug_cursor.execute(f"""
+                    SELECT d.folder_path, a.annotation_type, COUNT(*) as count
+                    FROM document_annotations a
+                    JOIN pdf_documents d ON a.doc_id = d.id
+                    WHERE d.folder_path IN ({placeholders})
+                    GROUP BY d.folder_path, a.annotation_type
+                """, matching_folders)
+                
+                for row in debug_cursor.fetchall():
+                    print(f"ANNOTATION DEBUG: {row['folder_path']} has {row['count']} {row['annotation_type']} annotations", file=sys.stderr)
                 query += f" AND d.folder_path IN ({placeholders})"
                 params.extend(matching_folders)
             else:
