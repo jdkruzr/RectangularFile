@@ -1224,7 +1224,7 @@ def register_routes(app):
             for row in doc_cursor.fetchall():
                 print(f"ANNOTATION DEBUG: Doc 273 in folder '{row['folder_path']}' has {row['count']} '{row['annotation_type']}' annotations", file=sys.stderr)
             # DEBUG: Check document 273's full path info
-            path_cursor = conn.cursor()
+            path_cursor = debug_conn.cursor()
             path_cursor.execute("""
                 SELECT id, filename, relative_path, folder_path
                 FROM pdf_documents
