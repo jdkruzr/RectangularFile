@@ -1288,17 +1288,24 @@ def register_routes(app):
             # Get all folders matching this category
             matching_folders = []
             for folder in all_folders:
-                pattern = f"/{category_filter}/"
-                if (pattern in f"/{folder}/" or 
-                    folder.startswith(f"{category_filter}/") or 
-                    folder.endswith(f"/{category_filter}")):
+                # Split the folder into parts
+                parts = folder.split('/')
+                # Check if the category appears anywhere in the path
+                if category_filter in parts:
                     matching_folders.append(folder)
+            
+            # DEBUG: Log what we found
+            app.logger.info(f"Category filter: {category_filter}")
+            app.logger.info(f"Found {len(matching_folders)} matching folders: {matching_folders}")
             
             if matching_folders:
                 placeholders = ','.join(['?' for _ in matching_folders])
                 query += f" AND d.folder_path IN ({placeholders})"
                 params.extend(matching_folders)
-        
+            else:
+                # If no folders match, we'll get no results
+                query += " AND 1=0"  # Force no results 
+                       
         # Filter by date range (using file creation date)
         if date_from:
             query += " AND DATE(d.file_created_at) >= DATE(?)"
