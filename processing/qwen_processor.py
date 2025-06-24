@@ -576,6 +576,7 @@ class QwenVLProcessor:
                 [YELLOW HIGHLIGHT]: same text here
                 - Format: [TYPE]: text here
                 - If no annotations found, respond with "NONE"
+                - If text does NOT have yellow highlighting, do NOT record any part of it as a yellow-highlighted annotation
 
                 Example response:
                 [GREEN BOX]: Important meeting tomorrow
