@@ -1195,6 +1195,68 @@ def register_routes(app):
         annotation_type = request.args.get('type', '')  # 'green_box', 'yellow_highlight', or ''
         date_from = request.args.get('from', '')
         date_to = request.args.get('to', '')
+        category_filter = request.args.get('category', '')
+        
+        # First, get all folders for category building (same as search/wordcloud)
+        all_folders = []
+        try:
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT DISTINCT folder_path FROM pdf_documents "
+                    "WHERE processing_status != 'removed' ORDER BY folder_path"
+                )
+                all_folders = [row[0] for row in cursor.fetchall() if row[0]]
+        except Exception as e:
+            app.logger.error(f"Error fetching folders: {e}")
+        
+        # Build folder categories (same logic as other views)
+        folder_categories = {}
+        device_folders = {}
+        common_categories = set()
+        
+        for folder in all_folders:
+            if not folder:
+                continue
+                
+            parts = folder.split('/')
+            if not parts or not parts[0]:
+                continue
+                
+            device = parts[0]
+            if device not in device_folders:
+                device_folders[device] = []
+            device_folders[device].append(folder)
+            
+            for i, part in enumerate(parts):
+                if i > 0 and part:
+                    common_categories.add(part)
+        
+        # Find cross-device categories
+        cross_device_categories = {}
+        if len(device_folders) > 1:
+            for category in common_categories:
+                devices_with_category = set()
+                category_folders = []
+                
+                for folder in all_folders:
+                    pattern = f"/{category}/"
+                    if (pattern in f"/{folder}/" or 
+                        folder.startswith(f"{category}/") or 
+                        folder.endswith(f"/{category}")):
+                        parts = folder.split('/')
+                        if parts and parts[0]:
+                            devices_with_category.add(parts[0])
+                            category_folders.append(folder)
+                
+                if len(devices_with_category) > 1:
+                    cross_device_categories[f"All {category} folders"] = category_folders
+        
+        folder_categories = dict(sorted(
+            cross_device_categories.items(),
+            key=lambda item: len(item[1]),
+            reverse=True
+        ))
         
         # Build query
         query = """
@@ -1221,6 +1283,22 @@ def register_routes(app):
             query += " AND a.annotation_type = ?"
             params.append(annotation_type)
         
+        # Filter by category (folder pattern)
+        if category_filter:
+            # Get all folders matching this category
+            matching_folders = []
+            for folder in all_folders:
+                pattern = f"/{category_filter}/"
+                if (pattern in f"/{folder}/" or 
+                    folder.startswith(f"{category_filter}/") or 
+                    folder.endswith(f"/{category_filter}")):
+                    matching_folders.append(folder)
+            
+            if matching_folders:
+                placeholders = ','.join(['?' for _ in matching_folders])
+                query += f" AND d.folder_path IN ({placeholders})"
+                params.extend(matching_folders)
+        
         # Filter by date range (using file creation date)
         if date_from:
             query += " AND DATE(d.file_created_at) >= DATE(?)"
@@ -1243,14 +1321,22 @@ def register_routes(app):
                 for row in cursor.fetchall():
                     annotations.append(dict(row))
                     
-                # Get counts by type
-                cursor.execute("""
+                # Get counts by type (respecting current filters)
+                count_query = """
                     SELECT annotation_type, COUNT(*) as count
                     FROM document_annotations a
                     JOIN pdf_documents d ON a.doc_id = d.id
                     WHERE d.processing_status != 'removed'
-                    GROUP BY annotation_type
-                """)
+                """
+                count_params = []
+                
+                if category_filter:
+                    count_query += f" AND d.folder_path IN ({placeholders})"
+                    count_params.extend(matching_folders)
+                    
+                count_query += " GROUP BY annotation_type"
+                
+                cursor.execute(count_query, count_params)
                 
                 for row in cursor.fetchall():
                     if row['annotation_type'] in annotation_counts:
@@ -1263,7 +1349,10 @@ def register_routes(app):
             'annotations_overview.html',
             annotations=annotations,
             annotation_counts=annotation_counts,
+            folder_categories=folder_categories,
+            device_folders=device_folders,
             current_type=annotation_type,
+            current_category=category_filter,
             date_from=date_from,
             date_to=date_to
         )

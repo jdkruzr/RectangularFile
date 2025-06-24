@@ -204,6 +204,20 @@
         </div>
         
         <div class="filter-group">
+            <label for="category-filter">Category</label>
+            <select name="category" id="category-filter" style="min-width: 200px;">
+                <option value="">All Categories</option>
+                {% for category, folders in folder_categories.items() %}
+                    {% set clean_category = category.replace('All ', '').replace(' folders', '') %}
+                    <option value="{{ clean_category }}" 
+                            {% if current_category == clean_category %}selected{% endif %}>
+                        {{ category }} ({{ folders|length }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="filter-group">
             <label for="date-from">From Date</label>
             <input type="date" name="from" id="date-from" value="{{ date_from }}">
         </div>
@@ -215,7 +229,7 @@
         
         <button type="submit" class="filter-button">Apply Filters</button>
         
-        {% if current_type or date_from or date_to %}
+        {% if current_type or current_category or date_from or date_to %}
             <a href="/annotations" class="clear-filters">Clear Filters</a>
         {% endif %}
     </form>
