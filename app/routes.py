@@ -1282,21 +1282,26 @@ def register_routes(app):
         if annotation_type:
             query += " AND a.annotation_type = ?"
             params.append(annotation_type)
-        
+                
         # Filter by category (folder pattern)
         if category_filter:
             # Get all folders matching this category
             matching_folders = []
+            app.logger.info(f"Looking for category: '{category_filter}'")
+            app.logger.info(f"All available folders: {all_folders}")
+            
             for folder in all_folders:
                 # Split the folder into parts
                 parts = folder.split('/')
                 # Check if the category appears anywhere in the path
                 if category_filter in parts:
                     matching_folders.append(folder)
+                    app.logger.info(f"  MATCH: '{folder}' contains '{category_filter}'")
+                else:
+                    # Log why it didn't match
+                    app.logger.info(f"  NO MATCH: '{folder}' parts are {parts}")
             
-            # DEBUG: Log what we found
-            app.logger.info(f"Category filter: {category_filter}")
-            app.logger.info(f"Found {len(matching_folders)} matching folders: {matching_folders}")
+            app.logger.info(f"Total matching folders: {len(matching_folders)}")
             
             if matching_folders:
                 placeholders = ','.join(['?' for _ in matching_folders])
@@ -1304,8 +1309,9 @@ def register_routes(app):
                 params.extend(matching_folders)
             else:
                 # If no folders match, we'll get no results
-                query += " AND 1=0"  # Force no results 
-                       
+                query += " AND 1=0"  # Force no results
+                app.logger.info("No matching folders found - forcing empty result set")      
+                                 
         # Filter by date range (using file creation date)
         if date_from:
             query += " AND DATE(d.file_created_at) >= DATE(?)"
@@ -1323,6 +1329,11 @@ def register_routes(app):
         try:
             with app.db.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # Right before executing the query
+                app.logger.info(f"Final query: {query}")
+                app.logger.info(f"Query params: {params}")
+
                 cursor.execute(query, params)
                 
                 for row in cursor.fetchall():
