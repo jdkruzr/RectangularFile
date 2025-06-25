@@ -1185,6 +1185,30 @@ def register_routes(app):
         except Exception as e:
             app.logger.error(f"Error updating annotation: {e}")
             return jsonify(success=False, message=str(e)), 500
+
+    @app.route('/api/delete_annotation/<int:annotation_id>', methods=['DELETE'])
+    @login_required
+    def delete_annotation(annotation_id):
+        """Delete an annotation."""
+        try:
+            with app.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if annotation exists
+                cursor.execute("SELECT id FROM document_annotations WHERE id = ?", (annotation_id,))
+                if not cursor.fetchone():
+                    return jsonify(success=False, message="Annotation not found"), 404
+                
+                # Delete the annotation
+                cursor.execute("DELETE FROM document_annotations WHERE id = ?", (annotation_id,))
+                conn.commit()
+                
+                app.logger.info(f"Deleted annotation {annotation_id}")
+                return jsonify(success=True, message="Annotation deleted successfully")
+                
+        except Exception as e:
+            app.logger.error(f"Error deleting annotation {annotation_id}: {e}")
+            return jsonify(success=False, message=str(e)), 500
         
     @app.route('/annotations')
     @login_required
