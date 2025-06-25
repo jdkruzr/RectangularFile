@@ -47,7 +47,7 @@ class FileWatcher:
     
     def _load_existing_files(self) -> None:
         """Load existing files, optionally scanning subdirectories."""
-        self.files = []
+        files_with_times = []
         self.file_mtimes = {}
         
         # Walk through directory tree if recursive, otherwise just list top directory
@@ -58,16 +58,22 @@ class FileWatcher:
                         # Store path relative to the base directory
                         file_path = os.path.join(root, filename)
                         rel_path = os.path.relpath(file_path, self.directory_path)
-                        self.files.append(rel_path)
-                        self.file_mtimes[rel_path] = os.path.getmtime(file_path)
+                        mtime = os.path.getmtime(file_path)
+                        files_with_times.append((rel_path, mtime))
+                        self.file_mtimes[rel_path] = mtime
         else:
             # Original non-recursive behavior
             for filename in os.listdir(self.directory_path):
                 file_path = os.path.join(self.directory_path, filename)
                 if os.path.isfile(file_path) and self._is_valid_file_type(filename):
-                    self.files.append(filename)
-                    self.file_mtimes[filename] = os.path.getmtime(file_path)
-    
+                    mtime = os.path.getmtime(file_path)
+                    files_with_times.append((filename, mtime))
+                    self.file_mtimes[filename] = mtime
+        
+        # Sort by modification time (most recent first) and extract just the filenames
+        files_with_times.sort(key=lambda x: x[1], reverse=True)
+        self.files = [f[0] for f in files_with_times]
+        
     def register_callback(self, callback: Callable) -> None:
         self.callbacks.append(callback)
     
@@ -101,8 +107,17 @@ class FileWatcher:
                     
                     if (self.watcher._is_valid_file_type(filename) and 
                         rel_path not in self.watcher.files):
-                        self.watcher.files.append(rel_path)
-                        self.watcher.file_mtimes[rel_path] = os.path.getmtime(file_path)
+                        # Add the new file
+                        mtime = os.path.getmtime(file_path)
+                        self.watcher.file_mtimes[rel_path] = mtime
+                        
+                        # Re-sort the entire list to maintain order
+                        files_with_times = [(f, self.watcher.file_mtimes.get(f, 0)) 
+                                            for f in self.watcher.files]
+                        files_with_times.append((rel_path, mtime))
+                        files_with_times.sort(key=lambda x: x[1], reverse=True)
+                        self.watcher.files = [f[0] for f in files_with_times]
+                        
                         for callback in self.watcher.callbacks:
                             callback(rel_path)
                             
@@ -195,6 +210,19 @@ class FileWatcher:
                 for callback in self.removal_callbacks:
                     callback(rel_path)
                     
+        # In scan_now, after the "Find new files" section, before returning:
+        # Re-sort the files list to maintain order
+        files_with_times = []
+        for rel_path in self.files:
+            file_path = os.path.join(self.directory_path, rel_path)
+            if os.path.exists(file_path):
+                mtime = os.path.getmtime(file_path)
+                files_with_times.append((rel_path, mtime))
+
+        # Sort by modification time (most recent first)
+        files_with_times.sort(key=lambda x: x[1], reverse=True)
+        self.files = [f[0] for f in files_with_times]
+
         return new_files, removed_files
     
     def stop(self) -> None:
