@@ -176,7 +176,7 @@
         currentPage: 1,
         pageSize: 10,
         sortBy: 'last_indexed',
-        sortOrder: 'desc',
+        sortOrder: 'asc',
         allFiles: [],
         filteredFiles: []
     };
@@ -199,7 +199,7 @@
         }
 
         const nameSpan = document.createElement('span');
-        nameSpan.textContent = file.filename;
+        nameSpan.textContent = file.base_filename;
         fileName.appendChild(nameSpan);
 
         fileItem.appendChild(fileName);
