@@ -18,7 +18,7 @@ def register_routes(app):
         'e8c3a5a189478215a016d16f5abf3e643c3a6ba2d286dcb779aa891004fd1c41'
     )
     
-    print(f"LOADED PASSWORD HASH: {PASSWORD_HASH}", file=sys.stderr)
+    # print(f"LOADED PASSWORD HASH: {PASSWORD_HASH}", file=sys.stderr)
     
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -27,20 +27,19 @@ def register_routes(app):
             password = request.form.get('password', '')
             
             # Direct debug output
-            import sys
-            print(f"LOGIN ATTEMPT: Password provided: {password}", file=sys.stderr)
-            print(f"LOGIN ATTEMPT: Expected hash: {PASSWORD_HASH}", file=sys.stderr)
+            # print(f"LOGIN ATTEMPT: Password provided: {password}", file=sys.stderr)
+            # print(f"LOGIN ATTEMPT: Expected hash: {PASSWORD_HASH}", file=sys.stderr)
             
             # Hash the provided password
             password_hash = hashlib.sha256(password.encode()).hexdigest()
-            print(f"LOGIN ATTEMPT: Computed hash: {password_hash}", file=sys.stderr)
-            print(f"LOGIN ATTEMPT: Hashes match: {password_hash == PASSWORD_HASH}", file=sys.stderr)
+            # print(f"LOGIN ATTEMPT: Computed hash: {password_hash}", file=sys.stderr)
+            # print(f"LOGIN ATTEMPT: Hashes match: {password_hash == PASSWORD_HASH}", file=sys.stderr)
             
             # Temporary: just try to log in without password check
-            if password == "testlogin":
-                user = app.User('admin')
-                login_user(user)
-                return redirect(url_for('index'))
+            #if password == "testlogin":
+            #    user = app.User('admin')
+            #    login_user(user)
+            #    return redirect(url_for('index'))
             
             if password_hash == PASSWORD_HASH:
                 user = app.User('admin')
