@@ -271,9 +271,6 @@
                             {{ annotation.annotation_type.replace('_', ' ').title() }}
                         </span>
                         <span>Page {{ annotation.page_number }}</span>
-                        {% if annotation.confidence %}
-                            <span>Confidence: {{ (annotation.confidence * 100)|round|int }}%</span>
-                        {% endif %}
                     </div>
                     <div class="annotation-actions">
                         <span class="annotation-date">

@@ -148,7 +148,6 @@
                 </div>
                 
                 <div class="annotation-meta">
-                    Confidence: {{ (annotation.confidence * 100)|round|int }}% • 
                     Added: {{ annotation.created_at.strftime('%Y-%m-%d %H:%M') if annotation.created_at else 'Unknown' }}
                 </div>
             </div>
@@ -156,7 +155,7 @@
     {% else %}
         <div class="no-annotations">
             <p>No annotations found for this document.</p>
-            <p>Annotations are created when boxed text is detected in the document.</p>
+            <p>Annotations are created when green-boxed or yellow-highlighted text is detected in the document.</p>
         </div>
     {% endif %}
 </div>
