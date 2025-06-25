@@ -52,28 +52,61 @@ class DatabaseManager:
             self.logger.error("Failed to initialize database")
             raise RuntimeError("Database initialization failed")
 
-    # The rest of the DatabaseManager methods remain the same...
     # (add_document, mark_document_removed, update_processing_progress, etc.)
     def add_document(self, filepath: Path) -> Optional[int]:
         """Add a new PDF document to the database or resurrect if marked as removed."""
         try:
-            # Instead of computing a relative path, just use the absolute path
-            # This will work regardless of where the file is located
+            # Use absolute path for storage
             absolute_path = str(filepath.absolute())
             filename = filepath.name
             
-            # Also store the folder structure - path relative to the base upload directory
+            # Extract folder path relative to base directory
+            folder_path = ""
             try:
-                # Try to get relative path from UPLOAD_FOLDER
-                from app import UPLOAD_FOLDER
-                base_dir = Path(UPLOAD_FOLDER)
-                if filepath.is_relative_to(base_dir):
-                    folder_path = str(filepath.parent.relative_to(base_dir))
-                else:
-                    folder_path = ""
-            except (ImportError, ValueError):
-                folder_path = ""
+                # Try multiple ways to get the base directory
+                base_dir = None
                 
+                # Method 1: Try Flask current_app
+                try:
+                    from flask import current_app
+                    if current_app:
+                        base_dir = Path(current_app.config.get('UPLOAD_FOLDER', '/mnt/onyx'))
+                except (ImportError, RuntimeError):
+                    pass
+                
+                # Method 2: Use environment variable
+                if not base_dir:
+                    base_dir = Path(os.environ.get('UPLOAD_FOLDER', '/mnt/onyx'))
+                
+                # Method 3: Default to /mnt/onyx
+                if not base_dir:
+                    base_dir = Path('/mnt/onyx')
+                
+                # Now try to extract folder path
+                if filepath.is_absolute() and filepath.is_relative_to(base_dir):
+                    rel_path = filepath.relative_to(base_dir)
+                    if len(rel_path.parts) > 1:
+                        folder_path = str(rel_path.parent)
+                    else:
+                        folder_path = ""
+                else:
+                    # If not under base directory, try to extract meaningful folder structure
+                    # Look for device patterns like Go103/Notebooks/Moffitt
+                    path_str = str(filepath)
+                    if '/mnt/onyx/' in path_str:
+                        # Extract everything after /mnt/onyx/
+                        idx = path_str.find('/mnt/onyx/') + 10
+                        remaining = path_str[idx:]
+                        parts = remaining.split('/')
+                        if len(parts) > 1:
+                            folder_path = '/'.join(parts[:-1])  # Everything except filename
+                    
+            except Exception as e:
+                self.logger.warning(f"Could not determine folder path for {filepath}: {e}")
+                folder_path = ""
+            
+            self.logger.info(f"Adding document: {filename}, folder_path: '{folder_path}', absolute_path: {absolute_path}")
+            
             # Extract metadata from filename
             import re
             
@@ -176,7 +209,7 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self.logger.error(f"Error adding document {filepath}: {e}")
             return None
-
+                
     def store_document_annotations(self, doc_id: int, annotations: list) -> bool:
         """Store annotations for a document, preventing duplicates."""
         try:

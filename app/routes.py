@@ -1196,43 +1196,7 @@ def register_routes(app):
         date_from = request.args.get('from', '')
         date_to = request.args.get('to', '')
         category_filter = request.args.get('category', '')
-        
-        # ADD THE DEBUG CODE HERE - RIGHT AFTER GETTING PARAMETERS
-        import sys  # Make sure this is imported
-        
-        # DEBUG: Check all annotation types in the database
-        print(f"ANNOTATION DEBUG: Checking all annotation types in database...", file=sys.stderr)
-        with app.db.get_connection() as debug_conn:
-            type_cursor = debug_conn.cursor()
-            type_cursor.execute("""
-                SELECT DISTINCT annotation_type, COUNT(*) as count
-                FROM document_annotations
-                GROUP BY annotation_type
-            """)
-            for row in type_cursor.fetchall():
-                print(f"ANNOTATION DEBUG: Found annotation type '{row['annotation_type']}' with {row['count']} annotations", file=sys.stderr)
-            
-            # DEBUG: Check document 273 specifically
-            doc_cursor = debug_conn.cursor()
-            doc_cursor.execute("""
-                SELECT d.id, d.folder_path, a.annotation_type, COUNT(*) as count
-                FROM pdf_documents d
-                LEFT JOIN document_annotations a ON d.id = a.doc_id
-                WHERE d.id = 273
-                GROUP BY d.id, d.folder_path, a.annotation_type
-            """)
-            for row in doc_cursor.fetchall():
-                print(f"ANNOTATION DEBUG: Doc 273 in folder '{row['folder_path']}' has {row['count']} '{row['annotation_type']}' annotations", file=sys.stderr)
-            # DEBUG: Check document 273's full path info
-            path_cursor = debug_conn.cursor()
-            path_cursor.execute("""
-                SELECT id, filename, relative_path, folder_path
-                FROM pdf_documents
-                WHERE id = 273
-            """)
-            for row in path_cursor.fetchall():
-                print(f"ANNOTATION DEBUG: Doc 273 - filename: '{row['filename']}', relative_path: '{row['relative_path']}', folder_path: '{row['folder_path']}'", file=sys.stderr)
-                
+                                    
         # First, get all folders for category building (same as search/wordcloud)
         all_folders = []
         try:
