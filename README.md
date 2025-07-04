@@ -2,7 +2,7 @@
 
 ![image](https://github.com/user-attachments/assets/c168eea6-1992-473e-9427-39dbf52b12c9)
 
-RectangularFile is a powerful document management system designed for handwritten notes from e-ink tablets (Onyx Boox, reMarkable, Supernote, etc.). It uses local AI to transcribe handwriting, detect annotations, and make everything searchable.
+RectangularFile is a powerful open-source document management system designed for handwritten notes from e-ink tablets (Onyx Boox, reMarkable, Supernote, etc.). It uses local AI to transcribe handwriting, detect annotations, and make everything searchable.
 
 ## ✨ Features
 
