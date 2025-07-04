@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .settings-section {
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 20px;
+        margin-bottom: 20px;
+        max-width: 600px;
+    }
+    
+    .settings-section h2 {
+        margin-top: 0;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+    }
+    
+    .form-group {
+        margin-bottom: 15px;
+    }
+    
+    .form-group p {
+        color: #6c757d;
+        font-size: 0.9em;
+        margin-top: 5px;
+    }
+    
+    .notification {
+        display: none;
+        background-color: #d4edda;
+        color: #155724;
+        padding: 10px 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2>Application Settings</h2>
+
+<div id="notification" class="notification"></div>
+
+<div class="settings-section">
+    <h2>File Monitoring Settings</h2>
+    <div class="form-group">
+        <label for="pollingInterval">Polling Interval (seconds)</label>
+        <input type="number" id="pollingInterval" min="1" step="1" value="30">
+        <p>How often the system checks for new files. Lower values are more responsive but use more resources.</p>
+    </div>
+    <button id="saveMonitoringSettings" class="button">Save Monitoring Settings</button>
+</div>
+
+<div class="settings-section">
+    <h2>File Processing Settings</h2>
+    <div class="form-group">
+        <label for="fileTypes">File Types to Monitor</label>
+        <input type="text" id="fileTypes" placeholder=".pdf,.txt (comma separated)" value=".pdf">
+        <p>File extensions to monitor, separated by commas. Leave empty to monitor all files.</p>
+    </div>
+    <button id="saveProcessingSettings" class="button">Save Processing Settings</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load current settings when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        fetch('/settings')  // This is correct - it's the API endpoint
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('pollingInterval').value = data.polling_interval;
+
+                // Also set file types if available
+                if (data.file_types && Array.isArray(data.file_types)) {
+                    document.getElementById('fileTypes').value = data.file_types.join(',');
+                }
+            });
+    });
+    
+    // Save monitoring settings
+    document.getElementById('saveMonitoringSettings').addEventListener('click', function() {
+        const pollingInterval = document.getElementById('pollingInterval').value;
+        
+        const formData = new FormData();
+        formData.append('polling_interval', pollingInterval);
+        
+        fetch('/settings', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            const notification = document.getElementById('notification');
+            notification.textContent = data.message;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        });
+    });
+    
+    // Save processing settings
+    document.getElementById('saveProcessingSettings').addEventListener('click', function() {
+        const fileTypes = document.getElementById('fileTypes').value;
+        
+        const formData = new FormData();
+        formData.append('file_types', fileTypes);
+        
+        fetch('/settings/files', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            const notification = document.getElementById('notification');
+            notification.textContent = data.message;
+            notification.style.display = 'block';
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block title %}Annotations - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .annotations-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .annotation-stats {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .stat-card {
+        background-color: #f8f9fa;
+        padding: 15px 20px;
+        border-radius: 4px;
+        text-align: center;
+    }
+    
+    .stat-number {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    
+    .stat-label {
+        font-size: 14px;
+        color: #666;
+    }
+    
+    .filters-section {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+    
+    .filter-form {
+        display: flex;
+        gap: 15px;
+        align-items: end;
+        flex-wrap: wrap;
+    }
+    
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .filter-group label {
+        font-size: 14px;
+        font-weight: bold;
+        color: #555;
+    }
+    
+    .filter-group select,
+    .filter-group input {
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    
+    .filter-button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .filter-button:hover {
+        background-color: #0056b3;
+    }
+    
+    .clear-filters {
+        background-color: #6c757d;
+        color: white;
+        text-decoration: none;
+        padding: 8px 15px;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    
+    .annotations-list {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .annotation-card {
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        transition: box-shadow 0.2s;
+    }
+    
+    .annotation-card:hover {
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .annotation-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 10px;
+    }
+    
+    .annotation-meta {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+    }
+    
+    .annotation-actions {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+    
+    .annotation-type-badge {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    .annotation-type-badge.green_box {
+        background-color: #c8e6c9;
+        color: #1b5e20;
+    }
+    
+    .annotation-type-badge.yellow_highlight {
+        background-color: #fff9c4;
+        color: #f57f17;
+    }
+    
+    .annotation-text {
+        background-color: #f8f9fa;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-size: 16px;
+        line-height: 1.5;
+    }
+    
+    .annotation-source {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 14px;
+        color: #666;
+    }
+    
+    .view-document-link {
+        color: #007bff;
+        text-decoration: none;
+    }
+    
+    .view-document-link:hover {
+        text-decoration: underline;
+    }
+    
+    .delete-annotation-btn {
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 18px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    .delete-annotation-btn:hover {
+        background-color: #c82333;
+    }
+    
+    .annotation-card.deleting {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    
+    .no-results {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="annotations-header">
+    <h2>All Annotations</h2>
+</div>
+
+<div class="annotation-stats">
+    <div class="stat-card">
+        <div class="stat-number">{{ annotation_counts.green_box }}</div>
+        <div class="stat-label">Green Boxes</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ annotation_counts.yellow_highlight }}</div>
+        <div class="stat-label">Yellow Highlights</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ annotation_counts.green_box + annotation_counts.yellow_highlight }}</div>
+        <div class="stat-label">Total Annotations</div>
+    </div>
+</div>
+
+<div class="filters-section">
+    <form class="filter-form" method="get" action="/annotations">
+        <div class="filter-group">
+            <label for="type-filter">Annotation Type</label>
+            <select name="type" id="type-filter">
+                <option value="">All Types</option>
+                <option value="green_box" {% if current_type == 'green_box' %}selected{% endif %}>Green Boxes</option>
+                <option value="yellow_highlight" {% if current_type == 'yellow_highlight' %}selected{% endif %}>Yellow Highlights</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="category-filter">Category</label>
+            <select name="category" id="category-filter" style="min-width: 200px;">
+                <option value="">All Categories</option>
+                {% for category, folders in folder_categories.items() %}
+                    {% set clean_category = category.replace('All ', '').replace(' folders', '') %}
+                    <option value="{{ clean_category }}" 
+                            {% if current_category == clean_category %}selected{% endif %}>
+                        {{ category }} ({{ folders|length }})
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="date-from">From Date</label>
+            <input type="date" name="from" id="date-from" value="{{ date_from }}">
+        </div>
+        
+        <div class="filter-group">
+            <label for="date-to">To Date</label>
+            <input type="date" name="to" id="date-to" value="{{ date_to }}">
+        </div>
+        
+        <button type="submit" class="filter-button">Apply Filters</button>
+        
+        {% if current_type or current_category or date_from or date_to %}
+            <a href="/annotations" class="clear-filters">Clear Filters</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="annotations-list">
+    {% if annotations %}
+        {% for annotation in annotations %}
+            <div class="annotation-card" id="annotation-{{ annotation.id }}">
+                <div class="annotation-header">
+                    <div class="annotation-meta">
+                        <span class="annotation-type-badge {{ annotation.annotation_type }}">
+                            {{ annotation.annotation_type.replace('_', ' ').title() }}
+                        </span>
+                        <span>Page {{ annotation.page_number }}</span>
+                    </div>
+                    <div class="annotation-actions">
+                        <span class="annotation-date">
+                            {{ annotation.file_created_at.strftime('%Y-%m-%d') if annotation.file_created_at else 'Unknown date' }}
+                        </span>
+                        <button class="delete-annotation-btn" 
+                                data-annotation-id="{{ annotation.id }}"
+                                onclick="deleteAnnotation(this)"
+                                title="Delete this annotation">
+                            ×
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="annotation-text">
+                    {{ annotation.text }}
+                </div>
+                
+                <div class="annotation-source">
+                    <span>
+                        <strong>{{ annotation.filename }}</strong>
+                        {% if annotation.folder_path %}
+                            <span style="color: #999;">in {{ annotation.folder_path }}</span>
+                        {% endif %}
+                    </span>
+                    <a href="/document/{{ annotation.doc_id }}#page-{{ annotation.page_number }}" 
+                       class="view-document-link">
+                        View in Document →
+                    </a>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="no-results">
+            <p>No annotations found matching your filters.</p>
+            {% if current_type or current_category or date_from or date_to %}
+                <p>Try adjusting your filters or <a href="/annotations">clear all filters</a>.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function deleteAnnotation(button) {
+    const annotationId = button.getAttribute('data-annotation-id');
+    
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+        return;
+    }
+    
+    const card = document.getElementById(`annotation-${annotationId}`);
+    card.classList.add('deleting');
+    
+    fetch(`/api/delete_annotation/${annotationId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Fade out and remove the card
+            card.style.transition = 'opacity 0.3s';
+            card.style.opacity = '0';
+            setTimeout(() => {
+                card.remove();
+                
+                // Update the count in the stats if visible
+                updateAnnotationCounts();
+            }, 300);
+        } else {
+            alert('Error deleting annotation: ' + data.message);
+            card.classList.remove('deleting');
+        }
+    })
+    .catch(error => {
+        alert('Error deleting annotation: ' + error);
+        card.classList.remove('deleting');
+    });
+}
+
+function updateAnnotationCounts() {
+    // Update the visible count on the page
+    const remainingCards = document.querySelectorAll('.annotation-card').length;
+    
+    // Update "No annotations" message if needed
+    if (remainingCards === 0) {
+        const listContainer = document.querySelector('.annotations-list');
+        listContainer.innerHTML = `
+            <div class="no-results">
+                <p>No annotations found matching your filters.</p>
+                <p>Try adjusting your filters or <a href="/annotations">clear all filters</a>.</p>
+            </div>
+        `;
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Annotations - {{ document.filename }}{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .annotations-container {
+        max-width: 800px;
+        margin: 20px auto;
+    }
+    
+    .annotation-item {
+        margin-bottom: 15px;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+    }
+    
+    .annotation-type {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin-right: 10px;
+    }
+    
+    .annotation-type-box {
+        background-color: #e3f2fd;
+        color: #0d47a1;
+        border: 1px solid #bbdefb;
+    }
+    
+    .annotation-page {
+        font-size: 0.9em;
+        color: #666;
+        margin-bottom: 8px;
+    }
+    
+    .annotation-text {
+        font-size: 1.1em;
+        margin: 10px 0;
+        padding: 10px;
+        background-color: #fff;
+        border-left: 3px solid #2196f3;
+    }
+    
+    .annotation-meta {
+        font-size: 0.8em;
+        color: #999;
+        text-align: right;
+    }
+    
+    .no-annotations {
+        padding: 30px;
+        text-align: center;
+        color: #666;
+        background-color: #f5f5f5;
+        border-radius: 4px;
+    }
+    
+    .back-link {
+        margin-bottom: 20px;
+        display: inline-block;
+    }
+
+        .edit-mode-toggle {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+    }
+    
+    .edit-mode-toggle.active {
+        background-color: #28a745;
+    }
+    
+    .editable-annotation {
+        position: relative;
+        transition: background-color 0.2s;
+    }
+    
+    .editable-annotation.edit-mode {
+        background-color: #fff3cd;
+        cursor: text;
+        padding: 10px;
+        border: 1px dashed #ffc107;
+    }
+    
+    .edit-controls {
+        display: none;
+        margin-top: 10px;
+        gap: 10px;
+    }
+    
+    .edit-controls.active {
+        display: flex;
+    }
+    
+    .edit-textarea {
+        width: 100%;
+        min-height: 100px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: inherit;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="annotations-container">
+    <a href="/document/{{ document.id }}" class="back-link">← Back to Document</a>
+    
+    <h2>Annotations for {{ document.filename }}</h2>
+    
+    {% if annotations %}
+        <p>Found {{ annotations|length }} annotations in this document.</p>
+        
+        {% for annotation in annotations %}
+            <div class="annotation-item">
+                <div class="annotation-header">
+                    <span class="annotation-type annotation-type-{{ annotation.annotation_type }}">
+                        {{ annotation.annotation_type|capitalize }}
+                    </span>
+                    <span class="annotation-page">
+                        Page {{ annotation.page_number }}
+                    </span>
+                </div>
+                
+                <!-- editing functionality for annotations -->
+                <div class="annotation-text editable-annotation" 
+                    data-annotation-id="{{ annotation.id }}">
+                    <div class="text-content">{{ annotation.text }}</div>
+                    <div class="edit-controls">
+                        <textarea class="edit-textarea">{{ annotation.text }}</textarea>
+                        <button class="save-edit-btn" onclick="saveAnnotation(this)">Save</button>
+                        <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                    </div>
+                </div>
+                
+                <div class="annotation-meta">
+                    Added: {{ annotation.created_at.strftime('%Y-%m-%d %H:%M') if annotation.created_at else 'Unknown' }}
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="no-annotations">
+            <p>No annotations found for this document.</p>
+            <p>Annotations are created when green-boxed or yellow-highlighted text is detected in the document.</p>
+        </div>
+    {% endif %}
+</div>
+<button id="editModeToggle" class="edit-mode-toggle">Enable Editing</button>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let editMode = false;
+
+document.getElementById('editModeToggle').addEventListener('click', function() {
+    editMode = !editMode;
+    this.textContent = editMode ? 'Disable Editing' : 'Enable Editing';
+    this.classList.toggle('active', editMode);
+    
+    document.querySelectorAll('.editable-annotation').forEach(elem => {
+        elem.classList.toggle('edit-mode', editMode);
+    });
+});
+
+document.addEventListener('click', function(e) {
+    if (!editMode) return;
+    
+    const editableAnnotation = e.target.closest('.editable-annotation');
+    if (!editableAnnotation) return;
+    
+    const textContent = editableAnnotation.querySelector('.text-content');
+    const editControls = editableAnnotation.querySelector('.edit-controls');
+    const textarea = editableAnnotation.querySelector('.edit-textarea');
+    
+    if (textContent && !editControls.classList.contains('active')) {
+        textContent.style.display = 'none';
+        editControls.classList.add('active');
+        textarea.focus();
+    }
+});
+
+function saveAnnotation(button) {
+    const editableAnnotation = button.closest('.editable-annotation');
+    const textarea = editableAnnotation.querySelector('.edit-textarea');
+    const textContent = editableAnnotation.querySelector('.text-content');
+    const editControls = editableAnnotation.querySelector('.edit-controls');
+    
+    const annotationId = editableAnnotation.dataset.annotationId;
+    const newText = textarea.value;
+    
+    button.textContent = 'Saving...';
+    button.disabled = true;
+    
+    fetch('/api/update_annotation', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            annotation_id: parseInt(annotationId),
+            text: newText
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            textContent.textContent = newText;
+            textContent.style.display = 'block';
+            editControls.classList.remove('active');
+            
+            button.textContent = 'Saved!';
+            setTimeout(() => {
+                button.textContent = 'Save';
+                button.disabled = false;
+            }, 1000);
+        } else {
+            alert('Error saving: ' + data.message);
+            button.textContent = 'Save';
+            button.disabled = false;
+        }
+    })
+    .catch(error => {
+        alert('Error saving: ' + error);
+        button.textContent = 'Save';
+        button.disabled = false;
+    });
+}
+
+function cancelEdit(button) {
+    const editableAnnotation = button.closest('.editable-annotation');
+    const textContent = editableAnnotation.querySelector('.text-content');
+    const editControls = editableAnnotation.querySelector('.edit-controls');
+    const textarea = editableAnnotation.querySelector('.edit-textarea');
+    
+    textarea.value = textContent.textContent;
+    textContent.style.display = 'block';
+    editControls.classList.remove('active');
+}
+</script>
+{% endblock %}

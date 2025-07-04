@@ -1,0 +1,634 @@
+{% extends "base.html" %}
+
+{% block title %}Home - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .folder-path {
+        color: #6c757d;
+        font-size: 0.9em;
+    }
+    
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 20px 0;
+    }
+    
+    .pagination-buttons {
+        display: flex;
+        gap: 10px;
+    }
+    
+    .pagination-button {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .pagination-button:hover {
+        background-color: #e9ecef;
+    }
+    
+    .pagination-button.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    .pagination-info {
+        color: #6c757d;
+    }
+    
+    .sort-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    
+    .sort-label {
+        font-weight: bold;
+        color: #555;
+    }
+    
+    .sort-select {
+        padding: 5px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    
+    .order-button {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        width: 30px;
+        height: 30px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .order-button.asc:after {
+        content: "↑";
+    }
+    
+    .order-button.desc:after {
+        content: "↓";
+    }
+    
+    /* Fix button styles */
+    .fix-button {
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+        margin-right: 10px;
+        font-size: 0.9em;
+        text-decoration: none;
+    }
+    
+    .fix-html-button {
+        color: #9c27b0; /* Purple for HTML */
+    }
+    
+    .fix-html-button:hover {
+        color: #7b1fa2;
+        text-decoration: underline;
+    }
+    
+    .fix-pdf-button {
+        color: #e91e63; /* Pink for PDF */
+    }
+    
+    .fix-pdf-button:hover {
+        color: #c2185b;
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="notification"></div>
+
+<div class="action-bar">
+    <button id="scanButton" class="button">Scan Now</button>
+</div>
+
+<h2>Files in monitored directory:</h2>
+
+<!-- Add sort controls -->
+<div class="sort-controls">
+    <span class="sort-label">Sort by:</span>
+    <select id="sortSelect" class="sort-select">
+        <option value="filename">Filename</option>
+        <option value="folder_path">Folder</option>
+        <option value="last_indexed">Date Added</option>
+        <option value="processing_status">Status</option>
+        <option value="file_size">File Size</option>
+    </select>
+    <button id="orderButton" class="order-button desc" title="Toggle sort order"></button>
+</div>
+
+<ul id="fileList">
+</ul>
+
+<!-- Add pagination controls -->
+<div class="pagination-controls">
+    <div class="pagination-buttons">
+        <button id="prevPageButton" class="pagination-button disabled">Previous</button>
+        <button id="nextPageButton" class="pagination-button">Next</button>
+    </div>
+    <div class="pagination-info">
+        Showing <span id="pageStart">1</span>-<span id="pageEnd">10</span> of <span id="totalItems">0</span> files
+    </div>
+    <div class="pagination-size">
+        <select id="pageSizeSelect">
+            <option value="10">10 per page</option>
+            <option value="25">25 per page</option>
+            <option value="50">50 per page</option>
+            <option value="100">100 per page</option>
+        </select>
+    </div>
+</div>
+
+<div class="queue-status-panel" id="queueStatus" style="display: none;">
+    <h3>OCR Processing Queue</h3>
+    <div id="queueDetails">
+        <p>Queue size: <span id="queueSize">0</span></p>
+        <div id="currentlyProcessing" style="display: none;">
+            <p>Currently processing: <span id="processingFilename"></span></p>
+            <p>Processing time: <span id="processingTime">0</span> seconds</p>
+            <div class="progress-container" style="width: 100%;">
+                <div id="processingProgressBar" class="progress-bar" style="width: 0%;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Pagination and sorting state
+    const state = {
+        currentPage: 1,
+        pageSize: 10,
+        sortBy: 'last_indexed',
+        sortOrder: 'asc',
+        allFiles: [],
+        filteredFiles: []
+    };
+
+    function createFileCard(file) {
+        const li = document.createElement('li');
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+
+        // File name with folder path
+        const fileName = document.createElement('div');
+        fileName.className = 'file-name';
+
+        // Show folder structure if available
+        if (file.folder_path && file.folder_path !== '') {
+            const folderSpan = document.createElement('span');
+            folderSpan.className = 'folder-path';
+            folderSpan.textContent = file.folder_path + '/';
+            fileName.appendChild(folderSpan);
+        }
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = file.base_filename;
+        fileName.appendChild(nameSpan);
+
+        fileItem.appendChild(fileName);
+
+        // File actions section
+        const fileActions = document.createElement('div');
+        fileActions.className = 'file-actions';
+
+        // Status badge if available
+        if (file.in_database && file.processing_status) {
+            const statusBadge = document.createElement('span');
+            statusBadge.className = `status-badge status-${file.processing_status.toLowerCase()}`;
+            statusBadge.textContent = file.processing_status;
+            fileActions.appendChild(statusBadge);
+
+            // Progress bar for processing items
+            if (file.processing_status === 'processing' && file.processing_progress !== undefined) {
+                const progressContainer = document.createElement('div');
+                progressContainer.className = 'progress-container';
+
+                const progressBar = document.createElement('div');
+                progressBar.className = 'progress-bar';
+                progressBar.style.width = `${file.processing_progress}%`;
+
+                progressContainer.appendChild(progressBar);
+                fileActions.appendChild(progressContainer);
+            }
+        }
+
+        // Add a divider
+        const divider = document.createElement('span');
+        divider.className = 'divider';
+        divider.textContent = '|';
+        fileActions.appendChild(divider);
+
+        // Inspector button
+        if (file.in_database && file.id) {
+            const inspectBtn = document.createElement('a');
+            inspectBtn.className = 'inspect-button';
+            inspectBtn.textContent = 'Inspect';
+            inspectBtn.href = `/document/${file.id}`;
+            fileActions.appendChild(inspectBtn);
+        }
+
+        // Reset button
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'reset-button';
+        resetBtn.textContent = 'Reset';
+        resetBtn.onclick = () => resetProcessing(file.filename);
+        fileActions.appendChild(resetBtn);
+
+        // Add special Fix buttons based on file type
+        const fileExt = file.filename.split('.').pop().toLowerCase();
+        if (fileExt === 'html' || fileExt === 'htm') {
+            const fixHtmlBtn = document.createElement('button');
+            fixHtmlBtn.className = 'fix-button fix-html-button';
+            fixHtmlBtn.textContent = 'Fix HTML';
+            fixHtmlBtn.onclick = () => fixHtmlFile(file.filename);
+            fileActions.appendChild(fixHtmlBtn);
+        } else if (fileExt === 'pdf') {
+            const fixPdfBtn = document.createElement('button');
+            fixPdfBtn.className = 'fix-button fix-pdf-button';
+            fixPdfBtn.textContent = 'Fix PDF';
+            fixPdfBtn.onclick = () => fixPdfFile(file.filename);
+            fileActions.appendChild(fixPdfBtn);
+        }
+
+        fileItem.appendChild(fileActions);
+        li.appendChild(fileItem);
+        return li;
+    }
+
+    // Add these functions to handle the fix buttons
+    function fixHtmlFile(fullPath) {
+        console.log(`Fixing HTML file: ${fullPath}`);
+        
+        fetch(`/fix_html_file?path=${encodeURIComponent(fullPath)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    updateFileList();
+                    const notification = document.getElementById('notification');
+                    notification.textContent = result.message;
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix HTML error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+
+    function fixPdfFile(fullPath) {
+        console.log(`Fixing PDF file: ${fullPath}`);
+        
+        fetch(`/fix_pdf_file?path=${encodeURIComponent(fullPath)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    updateFileList();
+                    const notification = document.getElementById('notification');
+                    notification.textContent = result.message;
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix PDF error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+
+    function processOCR(docId) {
+        fetch(`/ocr/${docId}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    updateFileList();  // Update the file list to show processing status
+                    const notification = document.getElementById('notification');
+                    notification.textContent = result.message;
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("OCR error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+
+    function sortFiles(files, sortBy, sortOrder) {
+        return [...files].sort((a, b) => {
+            let comparison = 0;
+            
+            if (sortBy === 'filename') {
+                // Use base filename for sorting, ignoring folder path
+                comparison = a.base_filename.localeCompare(b.base_filename);
+            } else if (sortBy === 'folder_path') {
+                // Sort by folder path
+                const folderA = a.folder_path || '';
+                const folderB = b.folder_path || '';
+                comparison = folderA.localeCompare(folderB);
+            } else if (sortBy === 'last_indexed') {
+                // Sort by indexed date if available, newest first
+                const dateA = a.last_indexed ? new Date(a.last_indexed) : new Date(0);
+                const dateB = b.last_indexed ? new Date(b.last_indexed) : new Date(0);
+                comparison = dateB - dateA; // Default newest first
+            } else if (sortBy === 'processing_status') {
+                // Sort by processing status
+                const statusA = a.processing_status || '';
+                const statusB = b.processing_status || '';
+                comparison = statusA.localeCompare(statusB);
+            } else if (sortBy === 'file_size') {
+                // Sort by file size
+                const sizeA = a.file_size || 0;
+                const sizeB = b.file_size || 0;
+                comparison = sizeA - sizeB;
+            }
+            
+            // Reverse if descending order
+            return sortOrder === 'desc' ? -comparison : comparison;
+        });
+    }
+
+    function renderFileList() {
+        const startIndex = (state.currentPage - 1) * state.pageSize;
+        const endIndex = Math.min(startIndex + state.pageSize, state.filteredFiles.length);
+        
+        const fileList = document.getElementById('fileList');
+        fileList.innerHTML = '';
+        
+        // Slice the files for the current page
+        const currentPageFiles = state.filteredFiles.slice(startIndex, endIndex);
+        
+        // Render each file
+        currentPageFiles.forEach(file => {
+            const li = createFileCard(file);
+            fileList.appendChild(li);
+        });
+        
+        // Update pagination controls
+        updatePaginationControls();
+    }
+    
+    function updatePaginationControls() {
+        const totalFiles = state.filteredFiles.length;
+        const totalPages = Math.ceil(totalFiles / state.pageSize);
+        const startIndex = (state.currentPage - 1) * state.pageSize + 1;
+        const endIndex = Math.min(startIndex + state.pageSize - 1, totalFiles);
+        
+        // Update pagination info text
+        document.getElementById('pageStart').textContent = totalFiles > 0 ? startIndex : 0;
+        document.getElementById('pageEnd').textContent = endIndex;
+        document.getElementById('totalItems').textContent = totalFiles;
+        
+        // Update button states
+        const prevButton = document.getElementById('prevPageButton');
+        const nextButton = document.getElementById('nextPageButton');
+        
+        prevButton.classList.toggle('disabled', state.currentPage <= 1);
+        nextButton.classList.toggle('disabled', state.currentPage >= totalPages);
+    }
+
+    function updateFileList() {
+        fetch('/files')
+            .then(response => response.json())
+            .then(data => {
+                // Store all files
+                state.allFiles = data.files;
+                
+                // Sort the files
+                state.filteredFiles = sortFiles(state.allFiles, state.sortBy, state.sortOrder);
+                
+                // Render the current page
+                renderFileList();
+            });
+    }
+
+    function resetProcessing(fullPath) {
+        console.log(`Resetting file: ${fullPath}`);
+
+        // First get the file's ID
+        fetch('/files')
+            .then(response => response.json())
+            .then(data => {
+                const fileInfo = data.files.find(f => f.filename === fullPath);
+
+                if (fileInfo && fileInfo.id) {
+                    // Use the full path to reset
+                    fetch(`/reset_file?path=${encodeURIComponent(fullPath)}`)
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success) {
+                                updateFileList();
+                                const notification = document.getElementById('notification');
+                                notification.textContent = result.message;
+                                notification.style.display = 'block';
+                                setTimeout(() => {
+                                    notification.style.display = 'none';
+                                }, 3000);
+                            } else {
+                                alert(`Error: ${result.message}`);
+                            }
+                        })
+                        .catch(error => {
+                            console.error("Reset error:", error);
+                            alert(`Error: ${error}`);
+                        });
+                } else {
+                    alert('File not in database yet or ID not found');
+                }
+            })
+            .catch(error => {
+                console.error("Files fetch error:", error);
+                alert(`Error fetching file data: ${error}`);
+            });
+    }
+
+    // Initialize UI elements
+    document.addEventListener('DOMContentLoaded', function() {
+        // Set up sort select
+        const sortSelect = document.getElementById('sortSelect');
+        sortSelect.value = state.sortBy;
+        sortSelect.addEventListener('change', function() {
+            state.sortBy = this.value;
+            state.filteredFiles = sortFiles(state.allFiles, state.sortBy, state.sortOrder);
+            state.currentPage = 1; // Reset to first page when sorting changes
+            renderFileList();
+        });
+        
+        // Set up sort order button
+        const orderButton = document.getElementById('orderButton');
+        orderButton.classList.add(state.sortOrder);
+        orderButton.addEventListener('click', function() {
+            // Toggle order
+            state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
+            this.classList.remove('asc', 'desc');
+            this.classList.add(state.sortOrder);
+            
+            // Resort and render
+            state.filteredFiles = sortFiles(state.allFiles, state.sortBy, state.sortOrder);
+            renderFileList();
+        });
+        
+        // Set up page size select
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        pageSizeSelect.value = state.pageSize;
+        pageSizeSelect.addEventListener('change', function() {
+            state.pageSize = parseInt(this.value);
+            state.currentPage = 1; // Reset to first page when page size changes
+            renderFileList();
+        });
+        
+        // Set up pagination buttons
+        document.getElementById('prevPageButton').addEventListener('click', function() {
+            if (state.currentPage > 1) {
+                state.currentPage--;
+                renderFileList();
+            }
+        });
+        
+        document.getElementById('nextPageButton').addEventListener('click', function() {
+            const totalPages = Math.ceil(state.filteredFiles.length / state.pageSize);
+            if (state.currentPage < totalPages) {
+                state.currentPage++;
+                renderFileList();
+            }
+        });
+        
+        // Initial file list update
+        updateFileList();
+    });
+
+    // Poll for new files every 5 seconds
+    setInterval(function () {
+        fetch('/new_files')
+            .then(response => response.json())
+            .then(data => {
+                if (data.new_files.length > 0 || data.removed_files.length > 0) {
+                    updateFileList();
+
+                    const notification = document.getElementById('notification');
+                    let message = [];
+                    if (data.new_files.length > 0) {
+                        message.push(`${data.new_files.length} new file(s) detected`);
+                    }
+                    if (data.removed_files.length > 0) {
+                        message.push(`${data.removed_files.length} file(s) removed`);
+                    }
+                    notification.textContent = message.join(' and ');
+                    notification.style.display = 'block';
+
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                }
+            });
+    }, 5000);
+
+    // Setup manual scan button
+    document.getElementById('scanButton').addEventListener('click', function () {
+        this.textContent = 'Scanning...';
+        this.disabled = true;
+
+        fetch('/scan')
+            .then(response => response.json())
+            .then(data => {
+                updateFileList();
+                this.textContent = 'Scan Now';
+                this.disabled = false;
+
+                const notification = document.getElementById('notification');
+                let message = [];
+                if (data.new_files.length > 0) {
+                    message.push(`${data.new_files.length} new file(s) detected`);
+                }
+                if (data.removed_files.length > 0) {
+                    message.push(`${data.removed_files.length} file(s) removed`);
+                }
+                if (message.length > 0) {
+                    notification.textContent = message.join(' and ');
+                    notification.style.display = 'block';
+                    setTimeout(() => {
+                        notification.style.display = 'none';
+                    }, 3000);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                this.textContent = 'Scan Now';
+                this.disabled = false;
+            });
+    });
+
+    // Update queue status every 3 seconds
+    setInterval(function () {
+        fetch('/ocr_queue')
+            .then(response => response.json())
+            .then(data => {
+                const queuePanel = document.getElementById('queueStatus');
+                const queueSize = document.getElementById('queueSize');
+                const currentlyProcessing = document.getElementById('currentlyProcessing');
+                const processingFilename = document.getElementById('processingFilename');
+                const processingTime = document.getElementById('processingTime');
+                const progressBar = document.getElementById('processingProgressBar');
+
+                if (data.is_running) {
+                    queuePanel.style.display = 'block';
+                    queueSize.textContent = data.queue_size;
+
+                    if (data.currently_processing) {
+                        currentlyProcessing.style.display = 'block';
+                        processingFilename.textContent = data.currently_processing.filename;
+                        processingTime.textContent = Math.round(data.currently_processing.processing_time);
+
+                        // Get the current progress from the document
+                        fetch('/files')
+                            .then(response => response.json())
+                            .then(filesData => {
+                                const docId = data.currently_processing.doc_id;
+                                const fileInfo = filesData.files.find(f => f.id === docId);
+
+                                if (fileInfo && fileInfo.processing_progress !== undefined) {
+                                    progressBar.style.width = `${fileInfo.processing_progress}%`;
+                                }
+                            });
+                    } else {
+                        currentlyProcessing.style.display = 'none';
+                    }
+                } else if (data.queue_size === 0) {
+                    queuePanel.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching queue status:', error);
+            });
+    }, 3000);
+</script>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Error - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .error-container {
+        margin: 50px auto;
+        padding: 20px;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 5px;
+        max-width: 600px;
+        text-align: center;
+    }
+    
+    .error-title {
+        color: #721c24;
+        font-size: 24px;
+        margin-bottom: 15px;
+    }
+    
+    .error-message {
+        color: #721c24;
+        margin-bottom: 20px;
+    }
+    
+    .home-button {
+        display: inline-block;
+        background-color: #007bff;
+        color: white;
+        padding: 10px 20px;
+        text-decoration: none;
+        border-radius: 5px;
+        margin-top: 10px;
+    }
+    
+    .home-button:hover {
+        background-color: #0056b3;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <h2 class="error-title">Error</h2>
+    <p class="error-message">{{ message }}</p>
+    <a href="/" class="home-button">Return to Home</a>
+</div>
+{% endblock %}

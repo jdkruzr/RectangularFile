@@ -1,0 +1,36 @@
+<!-- app/templates/base.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}RectangularFile{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    {% block additional_styles %}{% endblock %}
+</head>
+<body>
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <h1 class="app-title">RectangularFile Handwritten Note Manager</h1>
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+        <ul>
+            <li><a href="/"{% if request.path == '/' %} class="active"{% endif %}>Home</a></li>
+            <li><a href="/search"{% if request.path.startswith('/search') %} class="active"{% endif %}>Search</a></li>
+            <li><a href="/annotations"{% if request.path.startswith('/annotations') %} class="active"{% endif %}>Annotations</a></li>
+            <li><a href="/folders"{% if request.path.startswith('/folders') %} class="active"{% endif %}>Folders</a></li>
+            <li><a href="/wordcloud"{% if request.path.startswith('/wordcloud') %} class="active"{% endif %}>Word Cloud</a></li>
+            <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
+            <li style="margin-left: auto;"><a href="/logout">Logout</a></li>
+        </ul>
+    </div>
+
+    <!-- Main Content -->
+    <div class="content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

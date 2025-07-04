@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Folder Browser - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .folder-browser {
+        display: grid;
+        grid-template-columns: 250px 1fr;
+        gap: 20px;
+        margin-top: 20px;
+    }
+    
+    .folder-tree {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+    }
+    
+    .folder-tree ul {
+        list-style-type: none;
+        padding-left: 15px;
+    }
+    
+    .folder-tree li {
+        padding: 5px 0;
+    }
+    
+    .folder-tree a {
+        color: #333;
+        text-decoration: none;
+    }
+    
+    .folder-tree a:hover {
+        color: #007bff;
+    }
+    
+    .folder-tree a.active {
+        font-weight: bold;
+        color: #007bff;
+    }
+    
+    .file-list {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+    }
+    
+    .current-path {
+        background-color: #f8f9fa;
+        padding: 10px;
+        margin-bottom: 15px;
+        border-radius: 4px;
+        font-size: 1.1em;
+    }
+    
+    .path-segment {
+        margin-right: 5px;
+    }
+    
+    .path-segment:after {
+        content: '/';
+        margin-left: 5px;
+        color: #999;
+    }
+    
+    .path-segment:last-child:after {
+        content: '';
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2>Folder Browser</h2>
+
+<div class="folder-browser">
+    <div class="folder-tree">
+        <h3>Folders</h3>
+        <ul>
+            <li><a href="/folders" {% if not current_folder %}class="active"{% endif %}>Root</a></li>
+            {% for folder in all_folders %}
+                {% if folder %}
+                    <li>
+                        <a href="/folders?path={{ folder|urlencode }}" 
+                           {% if folder == current_folder %}class="active"{% endif %}>
+                            {{ folder }}
+                        </a>
+                    </li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+    </div>
+    
+    <div class="file-list">
+        <div class="current-path">
+            <a href="/folders" class="path-segment">Root</a>
+            {% if current_folder %}
+                {% set parts = current_folder.split('/') %}
+                {% for i in range(parts|length) %}
+                    {% set path = '/'.join(parts[:i+1]) %}
+                    <a href="/folders?path={{ path|urlencode }}" class="path-segment">{{ parts[i] }}</a>
+                {% endfor %}
+            {% endif %}
+        </div>
+        
+        <!-- Inside the files loop -->
+        {% if files %}
+            <ul id="fileList">
+                {% for file in files %}
+                    <li>
+                        <div class="file-item">
+                            <div class="file-name">
+                                {{ file.filename }}
+                            </div>
+                            <div class="file-actions">
+                                {% if file.processing_status %}
+                                    <span class="status-badge status-{{ file.processing_status }}">
+                                        {{ file.processing_status }}
+                                    </span>
+                                {% endif %}
+                                
+                                <span class="divider">|</span>
+                                
+                                <a href="/document/{{ file.id }}" class="inspect-button">View</a>
+                                
+                                <button class="reset-button" onclick="resetProcessing('{{ file.id }}')">Reset</button>
+                                
+                                {% if file.filename.endswith('.html') or file.filename.endswith('.htm') %}
+                                    <button class="fix-button fix-html-button" onclick="fixHtmlFile('{{ file.relative_path }}')">Fix HTML</button>
+                                {% elif file.filename.endswith('.pdf') %}
+                                    <button class="fix-button fix-pdf-button" onclick="fixPdfFile('{{ file.relative_path }}')">Fix PDF</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No files in this folder.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Update the file-item section to include fix buttons -->
+<script>
+    function resetProcessing(docId) {
+        fetch(`/reset/${docId}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert("Document queued for reprocessing");
+                    location.reload();
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Reset error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+    
+    function fixHtmlFile(filename) {
+        fetch(`/fix_html_file?path=${encodeURIComponent(filename)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert("HTML file processed successfully");
+                    location.reload();
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix HTML error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+    
+    function fixPdfFile(filename) {
+        fetch(`/fix_pdf_file?path=${encodeURIComponent(filename)}`)
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert("PDF file queued for processing");
+                    location.reload();
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            })
+            .catch(error => {
+                console.error("Fix PDF error:", error);
+                alert(`Error: ${error}`);
+            });
+    }
+</script>
+{% endblock %}

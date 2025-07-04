@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Search - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .search-form {
+        margin: 20px 0;
+        display: flex;
+    }
+    .search-input {
+        flex: 1;
+        padding: 10px;
+        font-size: 16px;
+        border: 1px solid #ddd;
+        border-radius: 4px 0 0 4px;
+    }
+    .search-button {
+        background-color: #2c3e50;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 0 4px 4px 0;
+        cursor: pointer;
+    }
+    .search-results {
+        margin-top: 20px;
+    }
+    .result-item {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        background-color: #fff;
+    }
+    .result-title {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .result-meta {
+        font-size: 0.8em;
+        color: #666;
+        margin-bottom: 10px;
+    }
+    .result-snippet {
+        margin-bottom: 10px;
+        line-height: 1.4;
+    }
+    .page-label {
+        display: inline-block;
+        background-color: #f8f9fa;
+        padding: 2px 6px;
+        border-radius: 3px;
+        margin-right: 5px;
+        font-size: 0.8em;
+        color: #666;
+    }
+    mark {
+        background-color: #fff9c4;
+        padding: 0 2px;
+    }
+    .result-actions {
+        margin-top: 10px;
+    }
+    .result-actions a {
+        margin-right: 10px;
+        color: #007bff;
+        text-decoration: none;
+    }
+    .no-results {
+        margin: 40px 0;
+        text-align: center;
+        color: #666;
+    }
+
+    .search-filters {
+        margin: 15px 0;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+    }
+    
+    .filter-form {
+        display: flex;
+        align-items: center;
+    }
+    
+    .filter-form label {
+        margin-right: 10px;
+        font-weight: bold;
+    }
+    
+    .filter-form select {
+        padding: 5px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        min-width: 250px;
+    }
+    
+    .folder-option-group {
+        font-weight: bold;
+        font-style: italic;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2>Search Documents</h2>
+
+<form class="search-form" method="get" action="/search">
+    <input type="text" name="q" class="search-input" placeholder="Enter search terms..." value="{{ query }}">
+    <button type="submit" class="search-button">Search</button>
+</form>
+
+<!-- Add this after the search form -->
+<div class="search-filters">
+    <form class="filter-form" method="get" action="/search">
+        <input type="hidden" name="q" value="{{ query }}">
+        
+        <label for="folder-filter">Filter by folder:</label>
+        <select name="folder" id="folder-filter" onchange="this.form.submit()">
+            <option value="">All folders</option>
+            
+            {% if folder_categories %}
+            <optgroup label="Cross-Device Categories">
+                {% for category, folders in folder_categories.items() %}
+                    <option value="{{ category.replace('All ', '').replace(' folders', '') }}" 
+                            {% if current_folder == category.replace('All ', '').replace(' folders', '') %}selected{% endif %}>
+                        {{ category }} ({{ folders|length }})
+                    </option>
+                {% endfor %}
+            </optgroup>
+            {% endif %}
+            
+            {% if device_folders %}
+            <optgroup label="Devices">
+                {% for device, folders in device_folders.items() %}
+                    <option value="{{ device }}" 
+                            {% if current_folder == device %}selected{% endif %}>
+                        {{ device }} ({{ folders|length }})
+                    </option>
+                {% endfor %}
+            </optgroup>
+            {% endif %}
+            
+            <optgroup label="Specific folders">
+                {% for folder in all_folders %}
+                    <option value="{{ folder }}" {% if current_folder == folder %}selected{% endif %}>
+                        {{ folder }}
+                    </option>
+                {% endfor %}
+            </optgroup>
+        </select>
+    </form>
+</div>
+
+<div class="search-results">
+    {% if query %}
+        {% if results %}
+            <h3>Found {{ results|length }} results for "{{ query }}"</h3>
+            
+            {% for result in results %}
+                <div class="result-item">
+                    <div class="result-title">{{ result.filename }}</div>
+                    <div class="result-meta">
+                        {% if result.pdf_title %}{{ result.pdf_title }} • {% endif %}
+                        {% if result.word_count %}{{ result.word_count }} words • {% endif %}
+                        {% if result.matching_pages %}Found on {{ result.matching_pages }} page(s){% endif %}
+                    </div>
+                    
+                    {% for snippet in result.snippets %}
+                        <div class="result-snippet">
+                            <span class="page-label">Page {{ snippet.page }}</span>
+                            <span class="source-label {{ snippet.source }}">{{ snippet.source|capitalize }}</span>
+                            {{ snippet.text|safe }}
+                        </div>
+                    {% endfor %}
+                    
+                    <div class="result-actions">
+                        <a href="/document/{{ result.doc_id }}" target="_blank">View Document</a>
+                        <a href="/document/{{ result.doc_id }}?highlight={{ query|urlencode }}" target="_blank">View with Highlights</a>
+                    </div>
+                </div>
+            {% endfor %}
+            
+        {% else %}
+            <div class="no-results">
+                <h3>No results found for "{{ query }}"</h3>
+                <p>Try using different keywords or check your spelling.</p>
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Simple JavaScript to focus the search input on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        if (!document.querySelector('.search-results h3')) {
+            document.querySelector('.search-input').focus();
+        }
+    });
+</script>
+{% endblock %}

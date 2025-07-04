@@ -1,0 +1,15 @@
+[Unit]
+Description=Rectangular File
+After=network.target
+
+[Service]
+User=sysop
+Group=sysop
+WorkingDirectory=/home/sysop/RectangularFile
+ExecStart=/home/sysop/RectangularFile/venv/bin/gunicorn -w 1 -b 0.0.0.0:5000 --timeout 120 --access-logfile - --error-logfile - main:app
+Restart=on-failure
+Environment=SECRET_KEY=[your generated key here]
+Environment=APP_PASSWORD_HASH=[your generated password hash here]
+
+[Install]
+WantedBy=multi-user.target

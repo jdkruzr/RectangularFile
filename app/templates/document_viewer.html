@@ -1,0 +1,614 @@
+{% extends "base.html" %}
+
+{% block title %}{{ document.filename }} - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .edit-mode-toggle {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+    }
+    
+    .edit-mode-toggle.active {
+        background-color: #28a745;
+    }
+    
+    .editable-text {
+        position: relative;
+        transition: background-color 0.2s;
+    }
+    
+    .editable-text.edit-mode {
+        background-color: #fff3cd;
+        cursor: text;
+        padding: 10px;
+        border: 1px dashed #ffc107;
+    }
+    
+    .editable-text.edit-mode:hover {
+        background-color: #ffeaa7;
+    }
+    
+    .edit-controls {
+        display: none;
+        margin-top: 10px;
+        gap: 10px;
+    }
+    
+    .edit-controls.active {
+        display: flex;
+    }
+    
+    .edit-textarea {
+        width: 100%;
+        min-height: 200px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: inherit;
+        line-height: 1.6;
+    }
+    
+    .save-edit-btn, .cancel-edit-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    
+    .save-edit-btn {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .cancel-edit-btn {
+        background-color: #6c757d;
+        color: white;
+    }
+</style>
+<style>
+    .document-container {
+        margin-top: 20px;
+    }
+    
+    .document-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .document-title {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 0;
+    }
+    
+    .document-metadata {
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    
+    .metadata-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+    }
+    
+    .metadata-item {
+        margin-bottom: 5px;
+    }
+    
+    .metadata-label {
+        font-weight: bold;
+        color: #555;
+    }
+    
+    .view-tabs {
+        margin-bottom: 20px;
+    }
+    
+    .tab-buttons {
+        display: flex;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    .tab-button {
+        padding: 10px 20px;
+        background-color: #f8f9fa;
+        border: 1px solid #ddd;
+        border-bottom: none;
+        border-radius: 4px 4px 0 0;
+        margin-right: 5px;
+        cursor: pointer;
+    }
+    
+    .tab-button.active {
+        background-color: white;
+        border-bottom: 1px solid white;
+        margin-bottom: -1px;
+        font-weight: bold;
+    }
+    
+    .tab-content {
+        display: none;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-top: none;
+        border-radius: 0 0 4px 4px;
+    }
+    
+    .tab-content.active {
+        display: block;
+    }
+    
+    .page-content {
+        margin-bottom: 30px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 30px;
+    }
+    
+    .page-content:last-child {
+        border-bottom: none;
+    }
+    
+    .page-header {
+        background-color: #f8f9fa;
+        padding: 10px 15px;
+        border-left: 4px solid #007bff;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .page-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    
+    .page-image-container {
+        text-align: center;
+    }
+    
+    .page-image {
+        max-width: 100%;
+        border: 1px solid #ddd;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .page-text {
+        line-height: 1.6;
+        white-space: pre-wrap;
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+    
+    .source-label {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 0.8em;
+        color: white;
+        margin-left: 10px;
+    }
+    
+    .source-label.ocr {
+        background-color: #28a745;
+    }
+    
+    .source-label.extracted {
+        background-color: #6c757d;
+    }
+    
+    .comparison-view .page-body {
+        grid-template-columns: 1fr;
+    }
+    
+    .comparison-columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    
+    .comparison-column h4 {
+        background-color: #f8f9fa;
+        padding: 8px;
+        margin-top: 0;
+        border-bottom: 1px solid #ddd;
+    }
+    
+    mark {
+        background-color: #fff9c4;
+        padding: 0 2px;
+    }
+    
+    .secondary-button {
+        background-color: #6c757d;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 14px;
+    }
+    
+    .secondary-button:hover {
+        background-color: #5a6268;
+        text-decoration: none;
+        color: white;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="document-container">
+
+        <div class="document-actions">
+            <a href="/reset/{{ document.id }}" class="button secondary-button">Reprocess Document</a>
+            <a href="/document/{{ document.id }}/annotations" class="button secondary-button">View Annotations</a>
+        </div>
+    </div>
+    
+    <div class="document-metadata">
+        <div class="metadata-grid">
+            {% if document.file_created_at %}
+            <div class="metadata-item">
+                <span class="metadata-label">Created:</span>
+                <span class="metadata-value">{{ document.file_created_at.strftime('%Y-%m-%d %H:%M') if document.file_created_at else 'Unknown' }}</span>
+            </div>
+            {% endif %}
+            
+            {% if document.file_size_bytes %}
+            <div class="metadata-item">
+                <span class="metadata-label">File Size:</span>
+                <span class="metadata-value">{{ (document.file_size_bytes / 1024)|round|int }} KB</span>
+            </div>
+            {% endif %}
+            
+            {% if document.word_count %}
+            <div class="metadata-item">
+                <span class="metadata-label">Word Count:</span>
+                <span class="metadata-value">{{ document.word_count }}</span>
+            </div>
+            {% endif %}
+            
+            {% if document.last_indexed_at %}
+            <div class="metadata-item">
+                <span class="metadata-label">Indexed:</span>
+                <span class="metadata-value">{{ document.last_indexed_at.strftime('%Y-%m-%d %H:%M') if document.last_indexed_at else 'Unknown' }}</span>
+            </div>
+            {% endif %}
+
+            {% if document.filename.endswith('.html') or document.filename.endswith('.htm') %}
+                <div class="document-type-badge">HTML Note</div>
+            {% endif %}
+            
+            {% if document.processing_status %}
+            <div class="metadata-item">
+                <span class="metadata-label">Status:</span>
+                <span class="metadata-value">{{ document.processing_status|capitalize }}</span>
+            </div>
+
+            {% if document.extracted_metadata %}
+                {% set metadata = document.extracted_metadata|from_json %}
+                {% if metadata.date %}
+                    <div class="metadata-item">
+                        <span class="metadata-label">Date:</span>
+                        <span class="metadata-value">{{ metadata.date }}</span>
+                    </div>
+                {% endif %}
+                {% if metadata.title %}
+                    <div class="metadata-item">
+                        <span class="metadata-label">Title:</span>
+                        <span class="metadata-value">{{ metadata.title }}</span>
+                    </div>
+                {% endif %}
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="view-tabs">
+        <div class="tab-buttons">
+            <div class="tab-button active" data-tab="combined-view">Combined View</div>
+            <div class="tab-button" data-tab="text-only">Text Only</div>
+            <div class="tab-button" data-tab="image-only">Image Only</div>
+            {% if has_comparison %}
+            <div class="tab-button" data-tab="comparison-view">Compare Sources</div>
+            {% endif %}
+        </div>
+        
+        <!-- Combined View Tab -->
+        <div id="combined-view" class="tab-content active">
+            {% if text_content %}
+                {% for page_num, page in text_content.items() %}
+                    <div class="page-content">
+                        <div class="page-header">
+                            <strong>Page {{ page_num }}</strong>
+                            {% if page.source %}
+                            <span class="source-label {{ page.source }}">{{ page.source|capitalize }}</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="page-body">
+                            {% if page.image_path %}
+                            <div class="page-image-container">
+                                <img src="{{ url_for('document_image', doc_id=document.id, page_num=page_num) }}" 
+                                     alt="Page {{ page_num }}" class="page-image">
+                            </div>
+                            {% endif %}
+                            
+                        <div class="page-text editable-text" 
+                            id="page-{{ page_num }}"
+                            data-doc-id="{{ document.id }}"
+                            data-page-num="{{ page_num }}"
+                            data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                            <div class="text-content">{{ page.text }}</div>
+                            <div class="edit-controls">
+                                <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-results">No content available for this document.</p>
+            {% endif %}
+        </div>
+        
+        <!-- Text Only Tab -->
+        <div id="text-only" class="tab-content">
+            {% if text_content %}
+                {% for page_num, page in text_content.items() %}
+                    <div class="page-content">
+                        <div class="page-header">
+                            <strong>Page {{ page_num }}</strong>
+                            {% if page.source %}
+                            <span class="source-label {{ page.source }}">{{ page.source|capitalize }}</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="page-text editable-text" 
+                            id="text-only-page-{{ page_num }}"
+                            data-doc-id="{{ document.id }}"
+                            data-page-num="{{ page_num }}"
+                            data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                            <div class="text-content">{{ page.text }}</div>
+                            <div class="edit-controls">
+                                <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-results">No text content available for this document.</p>
+            {% endif %}
+        </div>
+        
+        <button id="editModeToggle" class="edit-mode-toggle">Enable Editing</button>
+
+        <!-- Image Only Tab -->
+        <div id="image-only" class="tab-content">
+            {% if text_content %}
+                {% for page_num, page in text_content.items() %}
+                    {% if page.image_path %}
+                    <div class="page-content">
+                        <div class="page-header">
+                            <strong>Page {{ page_num }}</strong>
+                        </div>
+                        
+                        <div class="page-image-container">
+                            <img src="{{ url_for('document_image', doc_id=document.id, page_num=page_num) }}" 
+                                 alt="Page {{ page_num }}" class="page-image">
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            {% else %}
+                <p class="no-results">No images available for this document.</p>
+            {% endif %}
+        </div>
+        
+        <!-- Comparison View Tab -->
+        {% if has_comparison %}
+        <div id="comparison-view" class="tab-content comparison-view">
+            {% for page_num in common_pages %}
+                <div class="page-content">
+                    <div class="page-header">
+                        <strong>Page {{ page_num }}</strong>
+                    </div>
+                    
+                    <div class="page-body">
+                        <div class="comparison-columns">
+                            <div class="comparison-column">
+                                <h4>Extracted Text</h4>
+                                <div class="page-text">{{ extracted_content[page_num].text }}</div>
+                            </div>
+                            <div class="comparison-column">
+                                <h4>OCR Text</h4>
+                                <div class="page-text editable-text" 
+                                    id="page-{{ page_num }}"
+                                    data-doc-id="{{ document.id }}"
+                                    data-page-num="{{ page_num }}"
+                                    data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                                    <div class="text-content">{{ page.text }}</div>
+                                    <div class="edit-controls">
+                                        <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                        <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                        <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+
+    // Add to the scripts block
+    let editMode = false;
+
+    document.getElementById('editModeToggle').addEventListener('click', function() {
+        editMode = !editMode;
+        this.textContent = editMode ? 'Disable Editing' : 'Enable Editing';
+        this.classList.toggle('active', editMode);
+        
+        // Toggle edit mode on all editable elements
+        document.querySelectorAll('.editable-text').forEach(elem => {
+            elem.classList.toggle('edit-mode', editMode);
+        });
+    });
+
+    // Make text editable on click
+    document.addEventListener('click', function(e) {
+        if (!editMode) return;
+        
+        const editableText = e.target.closest('.editable-text');
+        if (!editableText) return;
+        
+        const textContent = editableText.querySelector('.text-content');
+        const editControls = editableText.querySelector('.edit-controls');
+        const textarea = editableText.querySelector('.edit-textarea');
+        
+        if (textContent && !editControls.classList.contains('active')) {
+            textContent.style.display = 'none';
+            editControls.classList.add('active');
+            textarea.focus();
+            
+            // Set cursor at end
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }
+    });
+
+    function saveTranscription(button) {
+        const editableText = button.closest('.editable-text');
+        const textarea = editableText.querySelector('.edit-textarea');
+        const textContent = editableText.querySelector('.text-content');
+        const editControls = editableText.querySelector('.edit-controls');
+        
+        const docId = editableText.dataset.docId;
+        const pageNum = editableText.dataset.pageNum;
+        const fieldType = editableText.dataset.fieldType;
+        const newText = textarea.value;
+        
+        // Show loading state
+        button.textContent = 'Saving...';
+        button.disabled = true;
+        
+        fetch('/api/update_transcription', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                doc_id: parseInt(docId),
+                page_number: parseInt(pageNum),
+                text: newText,
+                field_type: fieldType
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update the display
+                textContent.textContent = newText;
+                textContent.style.display = 'block';
+                editControls.classList.remove('active');
+                
+                // Show success briefly
+                button.textContent = 'Saved!';
+                setTimeout(() => {
+                    button.textContent = 'Save';
+                    button.disabled = false;
+                }, 1000);
+            } else {
+                alert('Error saving: ' + data.message);
+                button.textContent = 'Save';
+                button.disabled = false;
+            }
+        })
+        .catch(error => {
+            alert('Error saving: ' + error);
+            button.textContent = 'Save';
+            button.disabled = false;
+        });
+    }
+
+    function cancelEdit(button) {
+        const editableText = button.closest('.editable-text');
+        const textContent = editableText.querySelector('.text-content');
+        const editControls = editableText.querySelector('.edit-controls');
+        const textarea = editableText.querySelector('.edit-textarea');
+        
+        // Reset textarea to original value
+        textarea.value = textContent.textContent;
+        
+        // Hide edit controls
+        textContent.style.display = 'block';
+        editControls.classList.remove('active');
+    }
+
+    // Tab switching
+    document.addEventListener('DOMContentLoaded', function() {
+        const tabButtons = document.querySelectorAll('.tab-button');
+        tabButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                // Deactivate all tabs
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // Activate clicked tab
+                this.classList.add('active');
+                document.getElementById(this.getAttribute('data-tab')).classList.add('active');
+            });
+        });
+        
+        // Highlight search terms if provided
+        const highlight = "{{ highlight }}";
+        if (highlight) {
+            const terms = highlight.split(' ').filter(t => t.trim());
+            const pageTexts = document.querySelectorAll('.page-text');
+            
+            for (const pageText of pageTexts) {
+                let html = pageText.innerHTML;
+                
+                // Create a regex to match all terms (case insensitive)
+                const regex = new RegExp(`(${terms.join('|')})`, 'gi');
+                html = html.replace(regex, '<mark>$1</mark>');
+                
+                pageText.innerHTML = html;
+            }
+        }
+    });
+</script>
+{% endblock %}
