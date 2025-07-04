@@ -24,7 +24,7 @@ RectangularFile is a powerful open-source document management system designed fo
 3. Set up authentication (see below)
 4. Set up your Gunicorn installation with a systemd unit file like the provided example rectangular-file.service, place in `/etc/systemd/system/`
 5. Point your e-ink devices to sync PDFs to `/mnt/onyx` (or configured folder)
-6. `systemctl start && systemctl enable 
+6. `systemctl start && systemctl enable` 
 
 ## 📋 Requirements
 
