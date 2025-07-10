@@ -19,15 +19,15 @@ class CVAnnotationDetector:
         self.green_upper = np.array([80, 255, 255])  # Upper HSV bound for green
         
         # Minimum area threshold for regions (to filter noise)
-        self.min_area = 3000  # Increased further to ensure we get full phrases
+        self.min_area = 8000  # Very high threshold to ensure only full phrases
         
         # Morphological operations kernel sizes
         self.highlight_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel to merge nearby regions
         self.box_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
         
         # Minimum dimensions for valid regions
-        self.min_width = 200   # Minimum width in pixels - must be phrase-sized
-        self.min_height = 25   # Minimum height in pixels
+        self.min_width = 300   # Minimum width in pixels - must be phrase-sized
+        self.min_height = 30   # Minimum height in pixels
     
     def detect_yellow_highlights(self, image: Image.Image) -> List[Dict]:
         """
@@ -52,12 +52,17 @@ class CVAnnotationDetector:
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, self.highlight_kernel)
             # Then open to remove small noise
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, self.highlight_kernel)
-            # Aggressive dilation to merge individual words into complete phrases
-            dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 10))  # Much wider kernel
-            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, dilate_kernel)
-            # Additional horizontal closing to connect text across larger gaps
-            close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 5))
-            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, close_kernel)
+            
+            # VERY aggressive dilation to merge words into phrases
+            # Use extremely wide horizontal kernel to bridge word gaps
+            mega_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (100, 15))  # Very wide
+            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, mega_dilate_kernel)
+            
+            # Multiple rounds of horizontal closing to connect distant words
+            close_kernel1 = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 8))
+            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, close_kernel1)
+            close_kernel2 = cv2.getStructuringElement(cv2.MORPH_RECT, (60, 5))
+            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, close_kernel2)
             
             # Find contours
             contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
