@@ -14,3 +14,4 @@ wordcloud
 matplotlib
 nltk
 beautifulsoup4
+opencv-python

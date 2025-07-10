@@ -21,6 +21,7 @@ from pdf2image import convert_from_path
 from db.db_manager import DatabaseManager
 # Import the vision utility
 from qwen_vl_utils import process_vision_info
+from .cv_annotation_detector import CVAnnotationDetector
 
 # Increase the PIL image size limit
 Image.MAX_IMAGE_PIXELS = 200000000
@@ -57,6 +58,9 @@ class QwenVLProcessor:
         self.tokenizer = None
         self.processor = None
         self.model = None
+        
+        # Initialize CV annotation detector
+        self.cv_detector = CVAnnotationDetector()
 
     def setup_logging(self):
         """Configure logging for the processor."""
@@ -401,215 +405,100 @@ class QwenVLProcessor:
             return ""
 
     def _detect_colored_annotations(self, image: Image.Image, page_num: int) -> list:
-        """Detect both green boxed text and yellow highlighted text in separate passes."""
+        """Hybrid approach: Use CV to detect colored regions, then VLM to extract text."""
         annotations_found: List[Dict] = []
         
         try:
-            self.logger.info(f"Detecting colored annotations on page {page_num}")
+            self.logger.info(f"Detecting colored annotations on page {page_num} using hybrid CV+VLM approach")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
                 import gc
                 gc.collect()
             
-            # Pass 1: Green boxes
-            green_annotations = self._detect_green_boxes(image, page_num)
-            annotations_found.extend(green_annotations)
+            # Step 1: Use computer vision to detect colored regions
+            cv_detections = self.cv_detector.detect_all_annotations(image)
             
-            # Clean up between passes
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-                
-            # Pass 2: Yellow highlights  
-            yellow_annotations = self._detect_yellow_highlights(image, page_num)
-            annotations_found.extend(yellow_annotations)
+            # Step 2: Extract text from detected regions using VLM
+            for annotation_type, regions in cv_detections.items():
+                for region in regions:
+                    if region['confidence'] < 0.3:  # Skip low-confidence detections
+                        continue
+                    
+                    # Extract the region image
+                    region_image = self.cv_detector.extract_region_image(image, region['bbox'])
+                    
+                    # Use VLM to extract text from this specific region
+                    extracted_text = self._extract_text_from_region(region_image, region['type'])
+                    
+                    if extracted_text and extracted_text.strip():
+                        annotations_found.append({
+                            'page_number': page_num,
+                            'annotation_type': region['type'],
+                            'text': extracted_text.strip(),
+                            'confidence': region['confidence']
+                        })
+                    
+                    # Clean up between regions
+                    if self.device == "cuda":
+                        torch.cuda.empty_cache()
             
-            self.logger.info(f"Found {len(annotations_found)} total annotations")
+            self.logger.info(f"Found {len(annotations_found)} total annotations using hybrid approach")
             return annotations_found
             
         except Exception as e:
             self.logger.error(f"Error detecting colored annotations: {e}")
             return []
-
-    def _detect_green_boxes(self, image: Image.Image, page_num: int) -> list:
-        """Detect only green boxed text."""
-        annotations = []
-        
+    
+    def _extract_text_from_region(self, region_image: Image.Image, region_type: str) -> str:
+        """Extract text from a specific region using VLM with simplified prompt."""
         try:
-            self.logger.info(f"Detecting green boxes on page {page_num}")
-            self._log_memory_usage("Start of green box detection")
+            self.logger.info(f"Extracting text from {region_type} region of size {region_image.width}x{region_image.height}")
             
-            max_new_tokens = 100
+            # Simple prompt focused on text extraction
+            prompt = "Extract all handwritten text from this image region. Transcribe exactly what you see, ignoring any colored backgrounds or boxes."
+            
+            messages = [{"role": "user", "content": [
+                {"type": "image", "image": region_image, "resized_height": region_image.height, "resized_width": region_image.width}, 
+                {"type": "text", "text": prompt}
+            ]}]
+            
+            text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            image_inputs_list, video_inputs_list = process_vision_info(messages)
+            
+            inputs_dict = self.processor(
+                text=[text_prompt], 
+                images=image_inputs_list, 
+                videos=video_inputs_list, 
+                padding=True, 
+                return_tensors="pt"
+            )
+            inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
             
             with torch.amp.autocast('cuda', enabled=(self.device == "cuda")):
-                prompt = """Look for text that has a GREEN BOX drawn around it.
-
-    Requirements:
-    - The box must be GREEN colored (not black, blue, or any other color)
-    - The box must fully surround the text
-
-    DO NOT include:
-    - Text that is simply separated by whitespace
-    - Text in black boxes or borders
-    - Underlined text
-    - Text that stands alone without a green box
-    - Section headers or titles without green boxes
-
-    Respond with ONLY the text inside green boxes, one per line.
-    If no green boxes found, respond with: NONE"""
-
-                messages = [{"role": "user", "content": [
-                    {"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, 
-                    {"type": "text", "text": prompt}
-                ]}]
-                
-                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                image_inputs_list, video_inputs_list = process_vision_info(messages)
-                
-                inputs_dict = self.processor(
-                    text=[text_prompt], 
-                    images=image_inputs_list, 
-                    videos=video_inputs_list, 
-                    padding=True, 
-                    return_tensors="pt"
-                )
-                inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
-                
                 with torch.no_grad():
                     current_input_ids = inputs_dict_on_device['input_ids']
                     generated_ids = self.model.generate(
                         **inputs_dict_on_device,
-                        max_new_tokens=max_new_tokens,
+                        max_new_tokens=200,
                         do_sample=False,
                         temperature=1.0,
                         pad_token_id=self.tokenizer.pad_token_id,
-                        eos_token_id=self.tokenizer.eos_token_id,
-                        use_cache=True,
-                        repetition_penalty=1.0
+                        eos_token_id=self.tokenizer.eos_token_id
                     )
                     
                     generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(current_input_ids, generated_ids)]
                     output_text_list = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-                    response = output_text_list[0] if output_text_list else ""
+                    extracted_text = output_text_list[0] if output_text_list else ""
             
             del inputs_dict, inputs_dict_on_device, generated_ids, generated_ids_trimmed, current_input_ids
             if self.device == "cuda":
                 torch.cuda.empty_cache()
             
-            # Parse response
-            lines = [line.strip() for line in response.split('\n') if line.strip()]
-            
-            for line in lines:
-                if line.upper() == "NONE" or not line:
-                    continue
-                    
-                # Skip any explanatory text
-                if any(phrase in line.lower() for phrase in ["here is", "i found", "the text", "boxed text"]):
-                    continue
-                    
-                annotations.append({
-                    'page_number': page_num,
-                    'annotation_type': 'green_box',
-                    'text': line,
-                    'confidence': 0.8
-                })
-            
-            self.logger.info(f"Found {len(annotations)} green box annotations")
-            return annotations
+            self.logger.info(f"Extracted text: {extracted_text[:50]}..." if len(extracted_text) > 50 else f"Extracted text: {extracted_text}")
+            return extracted_text
             
         except Exception as e:
-            self.logger.error(f"Error detecting green boxes: {e}")
-            import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return []
+            self.logger.error(f"Error extracting text from region: {e}")
+            return ""
 
-    def _detect_yellow_highlights(self, image: Image.Image, page_num: int) -> list:
-        """Detect only yellow highlighted text."""
-        annotations = []
-        
-        try:
-            self.logger.info(f"Detecting yellow highlights on page {page_num}")
-            self._log_memory_usage("Start of yellow highlight detection")
-            
-            max_new_tokens = 100
-            
-            with torch.amp.autocast('cuda', enabled=(self.device == "cuda")):
-                prompt = """Look for text inside a region of YELLOW highlighting.
-
-    Requirements:
-    - The highlight must be YELLOW colored
-    - The text must be readable through the yellow highlight
-
-    DO NOT include:
-    - Text without any highlighting
-    - Text that is simply separated by whitespace
-    - Regular text that happens to be NEXT to yellow highlighting
-    - Regular text that happens to be isolated
-
-    Respond with ONLY the text that has yellow highlighting, one per line.
-    If no yellow highlights found, respond with: NONE"""
-
-                messages = [{"role": "user", "content": [
-                    {"type": "image", "image": image, "resized_height": image.height, "resized_width": image.width}, 
-                    {"type": "text", "text": prompt}
-                ]}]
-                
-                text_prompt = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                image_inputs_list, video_inputs_list = process_vision_info(messages)
-                
-                inputs_dict = self.processor(
-                    text=[text_prompt], 
-                    images=image_inputs_list, 
-                    videos=video_inputs_list, 
-                    padding=True, 
-                    return_tensors="pt"
-                )
-                inputs_dict_on_device = {k: v.to(self.device) if hasattr(v, 'to') else v for k, v in inputs_dict.items()}
-                
-                with torch.no_grad():
-                    current_input_ids = inputs_dict_on_device['input_ids']
-                    generated_ids = self.model.generate(
-                        **inputs_dict_on_device,
-                        max_new_tokens=max_new_tokens,
-                        do_sample=False,
-                        temperature=1.0,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                        eos_token_id=self.tokenizer.eos_token_id,
-                        use_cache=True,
-                        repetition_penalty=1.0
-                    )
-                    
-                    generated_ids_trimmed = [out_ids[len(in_ids):] for in_ids, out_ids in zip(current_input_ids, generated_ids)]
-                    output_text_list = self.processor.batch_decode(generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
-                    response = output_text_list[0] if output_text_list else ""
-            
-            del inputs_dict, inputs_dict_on_device, generated_ids, generated_ids_trimmed, current_input_ids
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
-            
-            # Parse response
-            lines = [line.strip() for line in response.split('\n') if line.strip()]
-            
-            for line in lines:
-                if line.upper() == "NONE" or not line:
-                    continue
-                    
-                # Skip any explanatory text
-                if any(phrase in line.lower() for phrase in ["here is", "i found", "the text", "highlighted text"]):
-                    continue
-                    
-                annotations.append({
-                    'page_number': page_num,
-                    'annotation_type': 'yellow_highlight',
-                    'text': line,
-                    'confidence': 0.8
-                })
-            
-            self.logger.info(f"Found {len(annotations)} yellow highlight annotations")
-            return annotations
-            
-        except Exception as e:
-            self.logger.error(f"Error detecting yellow highlights: {e}")
-            import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return []
