@@ -19,11 +19,15 @@ class CVAnnotationDetector:
         self.green_upper = np.array([80, 255, 255])  # Upper HSV bound for green
         
         # Minimum area threshold for regions (to filter noise)
-        self.min_area = 100
+        self.min_area = 1000  # Increased from 100 to avoid tiny fragments
         
         # Morphological operations kernel sizes
-        self.highlight_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        self.highlight_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel to merge nearby regions
         self.box_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        
+        # Minimum dimensions for valid regions
+        self.min_width = 50   # Minimum width in pixels
+        self.min_height = 15  # Minimum height in pixels
     
     def detect_yellow_highlights(self, image: Image.Image) -> List[Dict]:
         """
@@ -44,8 +48,13 @@ class CVAnnotationDetector:
             yellow_mask = cv2.inRange(hsv, self.yellow_lower, self.yellow_upper)
             
             # Clean up the mask with morphological operations
+            # First close small gaps to connect nearby regions
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, self.highlight_kernel)
+            # Then open to remove small noise
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, self.highlight_kernel)
+            # Additional dilation to merge nearby characters in highlighted text
+            dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))  # Wide kernel for text merging
+            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, dilate_kernel)
             
             # Find contours
             contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -58,6 +67,10 @@ class CVAnnotationDetector:
                 
                 # Get bounding rectangle
                 x, y, w, h = cv2.boundingRect(contour)
+                
+                # Filter by minimum dimensions
+                if w < self.min_width or h < self.min_height:
+                    continue
                 
                 # Calculate confidence based on area and shape
                 confidence = self._calculate_highlight_confidence(area, w, h, yellow_mask, x, y)
@@ -112,6 +125,10 @@ class CVAnnotationDetector:
                 
                 # Get bounding rectangle
                 x, y, w, h = cv2.boundingRect(contour)
+                
+                # Filter by minimum dimensions
+                if w < self.min_width or h < self.min_height:
+                    continue
                 
                 # For boxes, we want to check if it's actually a rectangular outline
                 # rather than a filled region
