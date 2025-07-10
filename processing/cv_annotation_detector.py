@@ -19,15 +19,15 @@ class CVAnnotationDetector:
         self.green_upper = np.array([80, 255, 255])  # Upper HSV bound for green
         
         # Minimum area threshold for regions (to filter noise)
-        self.min_area = 1000  # Increased from 100 to avoid tiny fragments
+        self.min_area = 3000  # Increased further to ensure we get full phrases
         
         # Morphological operations kernel sizes
         self.highlight_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel to merge nearby regions
         self.box_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
         
         # Minimum dimensions for valid regions
-        self.min_width = 50   # Minimum width in pixels
-        self.min_height = 15  # Minimum height in pixels
+        self.min_width = 200   # Minimum width in pixels - must be phrase-sized
+        self.min_height = 25   # Minimum height in pixels
     
     def detect_yellow_highlights(self, image: Image.Image) -> List[Dict]:
         """
@@ -52,9 +52,12 @@ class CVAnnotationDetector:
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, self.highlight_kernel)
             # Then open to remove small noise
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, self.highlight_kernel)
-            # Additional dilation to merge nearby characters in highlighted text
-            dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5))  # Wide kernel for text merging
+            # Aggressive dilation to merge individual words into complete phrases
+            dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (50, 10))  # Much wider kernel
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, dilate_kernel)
+            # Additional horizontal closing to connect text across larger gaps
+            close_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 5))
+            yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, close_kernel)
             
             # Find contours
             contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
