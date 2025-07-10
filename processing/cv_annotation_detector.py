@@ -11,23 +11,23 @@ class CVAnnotationDetector:
     
     def __init__(self):
         # Yellow highlight detection parameters (HSV color space)
-        self.yellow_lower = np.array([20, 50, 50])   # Lower HSV bound for yellow
-        self.yellow_upper = np.array([30, 255, 255]) # Upper HSV bound for yellow
+        self.yellow_lower = np.array([15, 40, 40])   # Broader HSV range for yellow
+        self.yellow_upper = np.array([35, 255, 255]) # Upper HSV bound for yellow
         
         # Green box detection parameters (HSV color space)
         self.green_lower = np.array([40, 50, 50])    # Lower HSV bound for green
         self.green_upper = np.array([80, 255, 255])  # Upper HSV bound for green
         
         # Minimum area threshold for regions (to filter noise)
-        self.min_area = 8000  # Very high threshold to ensure only full phrases
+        self.min_area = 5000  # Balanced threshold for phrases and list items
         
         # Morphological operations kernel sizes
         self.highlight_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))  # Larger kernel to merge nearby regions
         self.box_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
         
         # Minimum dimensions for valid regions
-        self.min_width = 300   # Minimum width in pixels - must be phrase-sized
-        self.min_height = 30   # Minimum height in pixels
+        self.min_width = 150   # Reduced for individual list items
+        self.min_height = 25   # Minimum height in pixels
     
     def detect_yellow_highlights(self, image: Image.Image) -> List[Dict]:
         """
@@ -53,13 +53,13 @@ class CVAnnotationDetector:
             # Then open to remove small noise
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, self.highlight_kernel)
             
-            # VERY aggressive dilation to merge words into phrases
-            # Use extremely wide horizontal kernel to bridge word gaps
-            mega_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (100, 15))  # Very wide
+            # Moderate dilation to merge words into phrases (dialed back from 100)
+            # Use wide horizontal kernel to bridge word gaps
+            mega_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (70, 12))  # Less aggressive
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, mega_dilate_kernel)
             
             # Also try vertical dilation for list-style highlighting
-            vertical_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 80))  # Tall for lists
+            vertical_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 60))  # Smaller for lists
             yellow_mask_vertical = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, vertical_dilate_kernel)
             
             # Combine horizontal and vertical dilations
@@ -74,10 +74,15 @@ class CVAnnotationDetector:
             # Find contours
             contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
+            logger.info(f"Found {len(contours)} yellow contours before filtering")
+            
             highlights = []
+            filtered_count = 0
             for contour in contours:
                 area = cv2.contourArea(contour)
                 if area < self.min_area:
+                    filtered_count += 1
+                    logger.debug(f"Filtered yellow contour: area {area} < {self.min_area}")
                     continue
                 
                 # Get bounding rectangle
@@ -85,6 +90,8 @@ class CVAnnotationDetector:
                 
                 # Filter by minimum dimensions
                 if w < self.min_width or h < self.min_height:
+                    filtered_count += 1
+                    logger.debug(f"Filtered yellow contour: dimensions {w}x{h} < {self.min_width}x{self.min_height}")
                     continue
                 
                 # Calculate confidence based on area and shape
@@ -100,7 +107,7 @@ class CVAnnotationDetector:
             # Sort by confidence (highest first)
             highlights.sort(key=lambda x: x['confidence'], reverse=True)
             
-            logger.info(f"Detected {len(highlights)} yellow highlight regions")
+            logger.info(f"Detected {len(highlights)} yellow highlight regions (filtered out {filtered_count})")
             return highlights
             
         except Exception as e:
