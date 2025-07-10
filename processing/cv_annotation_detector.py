@@ -58,6 +58,13 @@ class CVAnnotationDetector:
             mega_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (100, 15))  # Very wide
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, mega_dilate_kernel)
             
+            # Also try vertical dilation for list-style highlighting
+            vertical_dilate_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 80))  # Tall for lists
+            yellow_mask_vertical = cv2.morphologyEx(yellow_mask, cv2.MORPH_DILATE, vertical_dilate_kernel)
+            
+            # Combine horizontal and vertical dilations
+            yellow_mask = cv2.bitwise_or(yellow_mask, yellow_mask_vertical)
+            
             # Multiple rounds of horizontal closing to connect distant words
             close_kernel1 = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 8))
             yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, close_kernel1)
