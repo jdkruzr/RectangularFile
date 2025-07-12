@@ -94,18 +94,14 @@ class CVAnnotationDetector:
                     logger.debug(f"Filtered yellow contour: dimensions {w}x{h} < {self.min_width}x{self.min_height}")
                     continue
                 
-                # Calculate confidence based on area and shape
-                confidence = self._calculate_highlight_confidence(area, w, h, yellow_mask, x, y)
-                
                 highlights.append({
                     'bbox': (x, y, w, h),
                     'area': area,
-                    'confidence': confidence,
                     'type': 'yellow_highlight'
                 })
             
-            # Sort by confidence (highest first)
-            highlights.sort(key=lambda x: x['confidence'], reverse=True)
+            # Sort by area (largest first)
+            highlights.sort(key=lambda x: x['area'], reverse=True)
             
             logger.info(f"Detected {len(highlights)} yellow highlight regions (filtered out {filtered_count})")
             return highlights
@@ -152,19 +148,14 @@ class CVAnnotationDetector:
                 if w < self.min_width or h < self.min_height:
                     continue
                 
-                # For boxes, we want to check if it's actually a rectangular outline
-                # rather than a filled region
-                confidence = self._calculate_box_confidence(contour, area, w, h, green_mask, x, y)
-                
                 boxes.append({
                     'bbox': (x, y, w, h),
                     'area': area,
-                    'confidence': confidence,
                     'type': 'green_box'
                 })
             
-            # Sort by confidence (highest first)
-            boxes.sort(key=lambda x: x['confidence'], reverse=True)
+            # Sort by area (largest first)
+            boxes.sort(key=lambda x: x['area'], reverse=True)
             
             logger.info(f"Detected {len(boxes)} green box regions")
             return boxes
@@ -173,47 +164,6 @@ class CVAnnotationDetector:
             logger.error(f"Error detecting green boxes: {e}")
             return []
     
-    def _calculate_highlight_confidence(self, area: int, width: int, height: int, 
-                                      mask: np.ndarray, x: int, y: int) -> float:
-        """Calculate confidence score for yellow highlight detection"""
-        # Base confidence from area (larger = more confident)
-        area_confidence = min(area / 1000, 1.0)
-        
-        # Aspect ratio confidence (highlights are usually wider than tall)
-        aspect_ratio = width / height if height > 0 else 0
-        aspect_confidence = min(aspect_ratio / 3.0, 1.0) if aspect_ratio > 1 else 0.5
-        
-        # Pixel density confidence (what percentage of bounding box is actually yellow)
-        roi = mask[y:y+height, x:x+width]
-        pixel_density = np.sum(roi > 0) / (width * height) if width * height > 0 else 0
-        
-        # Combine confidences
-        confidence = (area_confidence * 0.4 + aspect_confidence * 0.3 + pixel_density * 0.3)
-        return min(confidence, 1.0)
-    
-    def _calculate_box_confidence(self, contour: np.ndarray, area: int, width: int, height: int,
-                                 mask: np.ndarray, x: int, y: int) -> float:
-        """Calculate confidence score for green box detection"""
-        # Check if contour is roughly rectangular
-        perimeter = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-        
-        # More vertices = more likely to be a box outline
-        vertex_confidence = min(len(approx) / 4.0, 1.0)
-        
-        # Area confidence
-        area_confidence = min(area / 1000, 1.0)
-        
-        # For boxes, we want hollow rectangles, so lower pixel density is better
-        roi = mask[y:y+height, x:x+width]
-        pixel_density = np.sum(roi > 0) / (width * height) if width * height > 0 else 0
-        
-        # Inverse pixel density (hollow boxes have lower density)
-        hollow_confidence = 1.0 - min(pixel_density, 1.0)
-        
-        # Combine confidences
-        confidence = (vertex_confidence * 0.4 + area_confidence * 0.3 + hollow_confidence * 0.3)
-        return min(confidence, 1.0)
     
     def extract_region_image(self, image: Image.Image, bbox: Tuple[int, int, int, int]) -> Image.Image:
         """

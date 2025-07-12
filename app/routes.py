@@ -826,7 +826,7 @@ def register_routes(app):
             with app.db.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, page_number, annotation_type, text, confidence, created_at
+                    SELECT id, page_number, annotation_type, text, created_at
                     FROM document_annotations
                     WHERE doc_id = ?
                     ORDER BY page_number, id
@@ -1289,7 +1289,6 @@ def register_routes(app):
                 a.page_number,
                 a.annotation_type,
                 a.text,
-                a.confidence,
                 a.created_at,
                 d.filename,
                 d.folder_path,

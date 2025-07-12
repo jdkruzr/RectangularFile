@@ -422,9 +422,6 @@ class QwenVLProcessor:
             # Step 2: Extract text from detected regions using VLM
             for annotation_type, regions in cv_detections.items():
                 for region in regions:
-                    if region['confidence'] < 0.3:  # Skip low-confidence detections
-                        continue
-                    
                     # Extract the region image
                     region_image = self.cv_detector.extract_region_image(image, region['bbox'])
                     
@@ -436,7 +433,7 @@ class QwenVLProcessor:
                             'page_number': page_num,
                             'annotation_type': region['type'],
                             'text': extracted_text.strip(),
-                            'confidence': region['confidence']
+                            'confidence': 0.8  # Fixed value for database compatibility
                         })
                     
                     # Clean up between regions
