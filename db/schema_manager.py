@@ -189,6 +189,20 @@ class SchemaManager:
                 "description": "Add extracted_metadata column",
                 "sql": "ALTER TABLE pdf_documents ADD COLUMN extracted_metadata TEXT"
             },
+            {
+                "version": 4,
+                "description": "Add settings table for CalDAV integration",
+                "sql": """CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    encrypted BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(category, key)
+                )"""
+            },
             # Future migrations would be added here
         ]
     
