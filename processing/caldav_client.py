@@ -203,14 +203,31 @@ END:VCALENDAR"""
                     # Parse VTODO data
                     vtodo = todo.icalendar_component
                     
+                    # Convert datetime objects to ISO strings for JSON serialization
+                    def convert_datetime(dt_obj):
+                        if dt_obj is None:
+                            return None
+                        try:
+                            if hasattr(dt_obj, 'isoformat'):
+                                return dt_obj.isoformat()
+                            elif hasattr(dt_obj, 'dt') and hasattr(dt_obj.dt, 'isoformat'):
+                                return dt_obj.dt.isoformat()
+                            else:
+                                return str(dt_obj)
+                        except:
+                            return str(dt_obj)
+                    
+                    created = vtodo.get('CREATED')
+                    due = vtodo.get('DUE')
+                    
                     todo_dict = {
                         'uid': str(vtodo.get('UID', '')),
                         'summary': str(vtodo.get('SUMMARY', '')),
                         'description': str(vtodo.get('DESCRIPTION', '')),
                         'status': str(vtodo.get('STATUS', 'NEEDS-ACTION')),
                         'priority': int(vtodo.get('PRIORITY', 5)),
-                        'created': vtodo.get('CREATED'),
-                        'due': vtodo.get('DUE'),
+                        'created': convert_datetime(created),
+                        'due': convert_datetime(due),
                         'categories': []
                     }
                     
