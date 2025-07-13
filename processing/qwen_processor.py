@@ -337,6 +337,7 @@ class QwenVLProcessor:
                     db_manager.store_document_annotations(doc_id, annotations)
                     
                     # Create CalDAV todos from yellow highlights
+                    self.logger.info("Attempting to create CalDAV todos from highlights")
                     self._create_todos_from_highlights(annotations, db_manager)
                 
                 db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
