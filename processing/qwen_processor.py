@@ -506,24 +506,32 @@ class QwenVLProcessor:
     def _create_todos_from_highlights(self, annotations: List[Dict], db_manager) -> None:
         """Create CalDAV todos from yellow highlight annotations."""
         try:
+            self.logger.info(f"_create_todos_from_highlights called with {len(annotations)} annotations")
+            
             # Check if CalDAV is enabled
             settings = db_manager.get_caldav_settings()
+            self.logger.info(f"CalDAV settings retrieved: enabled={settings['enabled']}, url={bool(settings['url'])}, username={bool(settings['username'])}, password={bool(settings['password'])}")
+            
             if not settings['enabled']:
-                self.logger.debug("CalDAV integration disabled, skipping todo creation")
+                self.logger.info("CalDAV integration disabled, skipping todo creation")
                 return
             
             if not all([settings['url'], settings['username'], settings['password']]):
-                self.logger.warning("CalDAV settings incomplete, skipping todo creation")
+                self.logger.warning(f"CalDAV settings incomplete, skipping todo creation. url={bool(settings['url'])}, username={bool(settings['username'])}, password={bool(settings['password'])}")
                 return
             
             # Filter for yellow highlights only
             yellow_highlights = [ann for ann in annotations if ann.get('type') == 'yellow_highlight']
+            self.logger.info(f"Filtered annotations: {len(yellow_highlights)} yellow highlights out of {len(annotations)} total")
             
             if not yellow_highlights:
-                self.logger.debug("No yellow highlights found, skipping todo creation")
+                self.logger.info("No yellow highlights found, skipping todo creation")
                 return
             
             self.logger.info(f"Creating {len(yellow_highlights)} todos from highlights")
+            for i, highlight in enumerate(yellow_highlights):
+                self.logger.info(f"Highlight {i+1}: type={highlight.get('type')}, text='{highlight.get('transcribed_text', '')[:50]}...'")
+                
             
             # Import CalDAV client
             from processing.caldav_client import CalDAVTodoClient
