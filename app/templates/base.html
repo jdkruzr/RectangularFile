@@ -20,6 +20,7 @@
             <li><a href="/annotations"{% if request.path.startswith('/annotations') %} class="active"{% endif %}>Annotations</a></li>
             <li><a href="/folders"{% if request.path.startswith('/folders') %} class="active"{% endif %}>Folders</a></li>
             <li><a href="/wordcloud"{% if request.path.startswith('/wordcloud') %} class="active"{% endif %}>Word Cloud</a></li>
+            <li><a href="/todos"{% if request.path.startswith('/todos') %} class="active"{% endif %}>To-Do</a></li>
             <li><a href="/settings/page"{% if request.path.startswith('/settings') %} class="active"{% endif %}>Settings</a></li>
             <li style="margin-left: auto;"><a href="/logout">Logout</a></li>
         </ul>

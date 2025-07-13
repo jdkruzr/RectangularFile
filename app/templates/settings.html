@@ -65,6 +65,37 @@
     </div>
     <button id="saveProcessingSettings" class="button">Save Processing Settings</button>
 </div>
+
+<div class="settings-section">
+    <h2>CalDAV Integration</h2>
+    <div class="form-group">
+        <label>
+            <input type="checkbox" id="caldavEnabled"> Enable CalDAV Integration
+        </label>
+        <p>Create calendar todos from highlighted text in documents.</p>
+    </div>
+    <div class="form-group">
+        <label for="caldavUrl">CalDAV Server URL</label>
+        <input type="url" id="caldavUrl" placeholder="https://your-server.com/calendar.php/calendars/username/">
+        <p>Full URL to your CalDAV server endpoint.</p>
+    </div>
+    <div class="form-group">
+        <label for="caldavUsername">Username</label>
+        <input type="text" id="caldavUsername" placeholder="your-username">
+    </div>
+    <div class="form-group">
+        <label for="caldavPassword">Password</label>
+        <input type="password" id="caldavPassword" placeholder="your-password">
+        <p>Password will be stored securely and encrypted.</p>
+    </div>
+    <div class="form-group">
+        <label for="caldavCalendar">Calendar Name</label>
+        <input type="text" id="caldavCalendar" placeholder="todos" value="todos">
+        <p>Name of the calendar to store todos in.</p>
+    </div>
+    <button id="testCalDAVConnection" class="button" style="margin-right: 10px;">Test Connection</button>
+    <button id="saveCalDAVSettings" class="button">Save CalDAV Settings</button>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -81,6 +112,20 @@
                     document.getElementById('fileTypes').value = data.file_types.join(',');
                 }
             });
+            
+        // Load CalDAV settings
+        fetch('/settings/caldav')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('caldavEnabled').checked = data.enabled || false;
+                    document.getElementById('caldavUrl').value = data.url || '';
+                    document.getElementById('caldavUsername').value = data.username || '';
+                    document.getElementById('caldavCalendar').value = data.calendar || 'todos';
+                    // Don't populate password for security
+                }
+            })
+            .catch(error => console.log('CalDAV settings not configured yet'));
     });
     
     // Save monitoring settings
@@ -128,5 +173,76 @@
             }, 3000);
         });
     });
+    
+    // Test CalDAV connection
+    document.getElementById('testCalDAVConnection').addEventListener('click', function() {
+        const url = document.getElementById('caldavUrl').value;
+        const username = document.getElementById('caldavUsername').value;
+        const password = document.getElementById('caldavPassword').value;
+        
+        if (!url || !username || !password) {
+            showNotification('Please fill in all CalDAV connection details');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('url', url);
+        formData.append('username', username);
+        formData.append('password', password);
+        
+        this.textContent = 'Testing...';
+        this.disabled = true;
+        
+        fetch('/settings/caldav/test', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            showNotification(data.message);
+            this.textContent = 'Test Connection';
+            this.disabled = false;
+        })
+        .catch(error => {
+            showNotification('Connection test failed');
+            this.textContent = 'Test Connection';
+            this.disabled = false;
+        });
+    });
+    
+    // Save CalDAV settings
+    document.getElementById('saveCalDAVSettings').addEventListener('click', function() {
+        const enabled = document.getElementById('caldavEnabled').checked;
+        const url = document.getElementById('caldavUrl').value;
+        const username = document.getElementById('caldavUsername').value;
+        const password = document.getElementById('caldavPassword').value;
+        const calendar = document.getElementById('caldavCalendar').value;
+        
+        const formData = new FormData();
+        formData.append('enabled', enabled);
+        formData.append('url', url);
+        formData.append('username', username);
+        formData.append('password', password);
+        formData.append('calendar', calendar);
+        
+        fetch('/settings/caldav', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            showNotification(data.message);
+        });
+    });
+    
+    function showNotification(message) {
+        const notification = document.getElementById('notification');
+        notification.textContent = message;
+        notification.style.display = 'block';
+        
+        setTimeout(() => {
+            notification.style.display = 'none';
+        }, 3000);
+    }
 </script>
 {% endblock %}

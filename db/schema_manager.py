@@ -145,6 +145,18 @@ class SchemaManager:
                     FOREIGN KEY (doc_id) REFERENCES pdf_documents(id),
                     FOREIGN KEY (annotation_id) REFERENCES document_annotations(id)
                 )
+            """,
+            "settings": """
+                CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    encrypted BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(category, key)
+                )
             """            
         }
     

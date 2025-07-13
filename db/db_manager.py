@@ -574,6 +574,66 @@ class DatabaseManager:
         except sqlite3.Error as e:
             self.logger.error(f"Error fetching active documents: {e}")
             return []
+    
+    def get_setting(self, category: str, key: str, decrypt: bool = False) -> Optional[str]:
+        """Get a setting value from the database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT value, encrypted FROM settings 
+                    WHERE category = ? AND key = ?
+                """, (category, key))
+                
+                result = cursor.fetchone()
+                if result:
+                    value, is_encrypted = result
+                    if is_encrypted and decrypt:
+                        # Import here to avoid circular imports
+                        from processing.caldav_client import CalDAVTodoClient
+                        client = CalDAVTodoClient()
+                        return client.decrypt_password(value)
+                    return value
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error getting setting {category}.{key}: {e}")
+            return None
+    
+    def set_setting(self, category: str, key: str, value: str, encrypt: bool = False) -> bool:
+        """Set a setting value in the database."""
+        try:
+            encrypted_value = value
+            if encrypt and value:
+                # Import here to avoid circular imports
+                from processing.caldav_client import CalDAVTodoClient
+                client = CalDAVTodoClient()
+                encrypted_value = client.encrypt_password(value)
+            
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO settings (category, key, value, encrypted, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (category, key, encrypted_value, encrypt, datetime.now()))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Error setting {category}.{key}: {e}")
+            return False
+    
+    def get_caldav_settings(self) -> Dict[str, any]:
+        """Get CalDAV settings."""
+        settings = {
+            'enabled': self.get_setting('caldav', 'enabled') == 'true',
+            'url': self.get_setting('caldav', 'url'),
+            'username': self.get_setting('caldav', 'username'),
+            'password': self.get_setting('caldav', 'password', decrypt=True),
+            'calendar': self.get_setting('caldav', 'calendar') or 'todos'
+        }
+        return settings
 
     def store_extracted_text(self, doc_id: int, page_data: Dict[int, Dict[str, any]]) -> bool:
         """Store extracted text and metadata for a document."""

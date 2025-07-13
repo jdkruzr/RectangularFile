@@ -335,6 +335,9 @@ class QwenVLProcessor:
                 if annotations:
                     self.logger.info(f"Storing {len(annotations)} annotations")
                     db_manager.store_document_annotations(doc_id, annotations)
+                    
+                    # Create CalDAV todos from yellow highlights
+                    self._create_todos_from_highlights(annotations, db_manager)
                 
                 db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
                 total_words = sum(p.get('word_count', 0) for p in page_data.values())
@@ -498,4 +501,89 @@ class QwenVLProcessor:
         except Exception as e:
             self.logger.error(f"Error extracting text from region: {e}")
             return ""
+    
+    def _create_todos_from_highlights(self, annotations: List[Dict], db_manager) -> None:
+        """Create CalDAV todos from yellow highlight annotations."""
+        try:
+            # Check if CalDAV is enabled
+            settings = db_manager.get_caldav_settings()
+            if not settings['enabled']:
+                self.logger.debug("CalDAV integration disabled, skipping todo creation")
+                return
+            
+            if not all([settings['url'], settings['username'], settings['password']]):
+                self.logger.warning("CalDAV settings incomplete, skipping todo creation")
+                return
+            
+            # Filter for yellow highlights only
+            yellow_highlights = [ann for ann in annotations if ann.get('type') == 'yellow_highlight']
+            
+            if not yellow_highlights:
+                self.logger.debug("No yellow highlights found, skipping todo creation")
+                return
+            
+            self.logger.info(f"Creating {len(yellow_highlights)} todos from highlights")
+            
+            # Import CalDAV client
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            
+            # Connect to CalDAV server
+            if not client.connect(settings['url'], settings['username'], 
+                                  settings['password'], settings['calendar']):
+                self.logger.error("Failed to connect to CalDAV server for todo creation")
+                return
+            
+            created_count = 0
+            for highlight in yellow_highlights:
+                try:
+                    # Extract text from highlight (should already be in annotation)
+                    text = highlight.get('transcribed_text', '').strip()
+                    
+                    if not text:
+                        self.logger.warning(f"No text found for highlight on page {highlight.get('page', 'unknown')}")
+                        continue
+                    
+                    # Create a meaningful summary (first line or limited chars)
+                    lines = text.split('\n')
+                    summary = lines[0][:100] if lines[0] else text[:100]
+                    if len(summary) == 100 and len(text) > 100:
+                        summary += "..."
+                    
+                    # Use full text as description if longer than summary
+                    description = text if len(text) > len(summary) else ""
+                    
+                    # Set categories to identify source
+                    categories = ['RectangularFile', 'Handwritten']
+                    page_num = highlight.get('page')
+                    if page_num:
+                        categories.append(f'Page-{page_num}')
+                    
+                    # Create todo with medium priority
+                    todo_uid = client.create_todo(
+                        summary=summary,
+                        description=description,
+                        priority=5,  # Medium priority
+                        categories=categories
+                    )
+                    
+                    if todo_uid:
+                        created_count += 1
+                        self.logger.debug(f"Created todo: {summary[:30]}...")
+                    else:
+                        self.logger.warning(f"Failed to create todo for highlight: {summary[:30]}...")
+                        
+                except Exception as e:
+                    self.logger.error(f"Error creating todo from highlight: {e}")
+                    continue
+            
+            if created_count > 0:
+                self.logger.info(f"Successfully created {created_count} todos from highlights")
+            else:
+                self.logger.warning("No todos were created from highlights")
+                
+        except Exception as e:
+            self.logger.error(f"Error in todo creation from highlights: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
 

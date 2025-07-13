@@ -1,0 +1,509 @@
+{% extends "base.html" %}
+
+{% block title %}To-Do List - RectangularFile{% endblock %}
+
+{% block additional_styles %}
+<style>
+    .todo-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .todo-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 30px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #eee;
+    }
+    
+    .todo-stats {
+        display: flex;
+        gap: 20px;
+        font-size: 0.9em;
+        color: #666;
+    }
+    
+    .todo-filters {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        align-items: center;
+    }
+    
+    .todo-list {
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .todo-item {
+        border-bottom: 1px solid #eee;
+        padding: 15px 20px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        transition: background-color 0.2s;
+    }
+    
+    .todo-item:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .todo-item.completed {
+        opacity: 0.7;
+        background-color: #f8f9fa;
+    }
+    
+    .todo-checkbox {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+    
+    .todo-content {
+        flex: 1;
+        min-width: 0;
+    }
+    
+    .todo-summary {
+        font-weight: 500;
+        margin-bottom: 5px;
+        word-wrap: break-word;
+    }
+    
+    .todo-summary.completed {
+        text-decoration: line-through;
+        color: #666;
+    }
+    
+    .todo-description {
+        font-size: 0.9em;
+        color: #666;
+        margin-bottom: 5px;
+        word-wrap: break-word;
+    }
+    
+    .todo-meta {
+        display: flex;
+        gap: 15px;
+        font-size: 0.8em;
+        color: #888;
+        align-items: center;
+    }
+    
+    .todo-priority {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.75em;
+        font-weight: 500;
+    }
+    
+    .priority-high {
+        background-color: #fee;
+        color: #c53030;
+    }
+    
+    .priority-medium {
+        background-color: #fef5e7;
+        color: #dd6b20;
+    }
+    
+    .priority-low {
+        background-color: #f0fff4;
+        color: #38a169;
+    }
+    
+    .todo-categories {
+        display: flex;
+        gap: 5px;
+        flex-wrap: wrap;
+    }
+    
+    .category-tag {
+        background-color: #e2e8f0;
+        color: #4a5568;
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-size: 0.7em;
+    }
+    
+    .todo-actions {
+        display: flex;
+        gap: 10px;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+    
+    .todo-item:hover .todo-actions {
+        opacity: 1;
+    }
+    
+    .action-btn {
+        background: none;
+        border: 1px solid #ddd;
+        padding: 5px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8em;
+        transition: all 0.2s;
+    }
+    
+    .action-btn:hover {
+        background-color: #f5f5f5;
+        border-color: #999;
+    }
+    
+    .action-btn.delete {
+        color: #dc3545;
+        border-color: #dc3545;
+    }
+    
+    .action-btn.delete:hover {
+        background-color: #dc3545;
+        color: white;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #666;
+    }
+    
+    .empty-state h3 {
+        margin-bottom: 10px;
+        color: #333;
+    }
+    
+    .sync-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.9em;
+        color: #666;
+    }
+    
+    .sync-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #28a745;
+    }
+    
+    .sync-indicator.syncing {
+        background-color: #ffc107;
+        animation: pulse 1.5s infinite;
+    }
+    
+    .sync-indicator.error {
+        background-color: #dc3545;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+    
+    .notification {
+        display: none;
+        padding: 10px 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+    
+    .notification.success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    
+    .notification.error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="todo-container">
+    <div class="todo-header">
+        <h1>To-Do List</h1>
+        <div class="sync-status">
+            <div class="sync-indicator" id="syncIndicator"></div>
+            <span id="syncStatus">Connected</span>
+            <button id="syncNow" class="button" style="margin-left: 10px;">Sync Now</button>
+        </div>
+    </div>
+    
+    <div id="notification" class="notification"></div>
+    
+    <div class="todo-stats">
+        <span>Total: <strong id="totalCount">0</strong></span>
+        <span>Pending: <strong id="pendingCount">0</strong></span>
+        <span>Completed: <strong id="completedCount">0</strong></span>
+    </div>
+    
+    <div class="todo-filters">
+        <label>
+            <input type="radio" name="filter" value="all" checked> All
+        </label>
+        <label>
+            <input type="radio" name="filter" value="pending"> Pending
+        </label>
+        <label>
+            <input type="radio" name="filter" value="completed"> Completed
+        </label>
+        <label>
+            <input type="radio" name="filter" value="high"> High Priority
+        </label>
+        <select id="categoryFilter">
+            <option value="">All Categories</option>
+        </select>
+    </div>
+    
+    <div class="todo-list" id="todoList">
+        <div class="empty-state">
+            <h3>Loading todos...</h3>
+            <p>Syncing with your CalDAV server</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let todos = [];
+    let currentFilter = 'all';
+    let currentCategory = '';
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        loadTodos();
+        
+        // Filter event listeners
+        document.querySelectorAll('input[name="filter"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                currentFilter = this.value;
+                renderTodos();
+            });
+        });
+        
+        document.getElementById('categoryFilter').addEventListener('change', function() {
+            currentCategory = this.value;
+            renderTodos();
+        });
+        
+        // Sync button
+        document.getElementById('syncNow').addEventListener('click', function() {
+            loadTodos(true);
+        });
+    });
+    
+    function loadTodos(showLoading = false) {
+        if (showLoading) {
+            setSyncStatus('syncing', 'Syncing...');
+        }
+        
+        fetch('/todos/sync', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    todos = data.todos || [];
+                    renderTodos();
+                    updateStats();
+                    updateCategoryFilter();
+                    setSyncStatus('connected', 'Connected');
+                    showNotification('Todos synced successfully', 'success');
+                } else {
+                    setSyncStatus('error', 'Sync failed');
+                    showNotification(data.message || 'Failed to sync todos', 'error');
+                }
+            })
+            .catch(error => {
+                setSyncStatus('error', 'Connection error');
+                showNotification('Failed to connect to server', 'error');
+                console.error('Error loading todos:', error);
+            });
+    }
+    
+    function renderTodos() {
+        const todoList = document.getElementById('todoList');
+        
+        let filteredTodos = todos.filter(todo => {
+            // Status filter
+            if (currentFilter === 'pending' && todo.status === 'COMPLETED') return false;
+            if (currentFilter === 'completed' && todo.status !== 'COMPLETED') return false;
+            if (currentFilter === 'high' && todo.priority > 3) return false;
+            
+            // Category filter
+            if (currentCategory && !todo.categories.includes(currentCategory)) return false;
+            
+            return true;
+        });
+        
+        if (filteredTodos.length === 0) {
+            todoList.innerHTML = `
+                <div class="empty-state">
+                    <h3>No todos found</h3>
+                    <p>Try adjusting your filters or create new todos from highlighted text in documents.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        const todosHtml = filteredTodos.map(todo => {
+            const isCompleted = todo.status === 'COMPLETED';
+            const priorityClass = todo.priority <= 3 ? 'high' : todo.priority <= 6 ? 'medium' : 'low';
+            const priorityText = todo.priority <= 3 ? 'High' : todo.priority <= 6 ? 'Medium' : 'Low';
+            
+            const categoriesHtml = todo.categories.map(cat => 
+                `<span class="category-tag">${cat}</span>`
+            ).join('');
+            
+            const dueDate = todo.due ? new Date(todo.due).toLocaleDateString() : '';
+            
+            return `
+                <div class="todo-item ${isCompleted ? 'completed' : ''}" data-uid="${todo.uid}">
+                    <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''} 
+                           onchange="toggleTodoStatus('${todo.uid}', this.checked)">
+                    <div class="todo-content">
+                        <div class="todo-summary ${isCompleted ? 'completed' : ''}">${todo.summary}</div>
+                        ${todo.description ? `<div class="todo-description">${todo.description}</div>` : ''}
+                        <div class="todo-meta">
+                            <span class="todo-priority priority-${priorityClass}">${priorityText}</span>
+                            ${dueDate ? `<span>Due: ${dueDate}</span>` : ''}
+                            ${todo.created ? `<span>Created: ${new Date(todo.created).toLocaleDateString()}</span>` : ''}
+                            <div class="todo-categories">${categoriesHtml}</div>
+                        </div>
+                    </div>
+                    <div class="todo-actions">
+                        <button class="action-btn delete" onclick="deleteTodo('${todo.uid}')">Delete</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        todoList.innerHTML = todosHtml;
+    }
+    
+    function updateStats() {
+        const totalCount = todos.length;
+        const pendingCount = todos.filter(t => t.status !== 'COMPLETED').length;
+        const completedCount = todos.filter(t => t.status === 'COMPLETED').length;
+        
+        document.getElementById('totalCount').textContent = totalCount;
+        document.getElementById('pendingCount').textContent = pendingCount;
+        document.getElementById('completedCount').textContent = completedCount;
+    }
+    
+    function updateCategoryFilter() {
+        const categories = new Set();
+        todos.forEach(todo => {
+            todo.categories.forEach(cat => categories.add(cat));
+        });
+        
+        const categoryFilter = document.getElementById('categoryFilter');
+        const currentValue = categoryFilter.value;
+        
+        categoryFilter.innerHTML = '<option value="">All Categories</option>';
+        Array.from(categories).sort().forEach(category => {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = category;
+            categoryFilter.appendChild(option);
+        });
+        
+        categoryFilter.value = currentValue;
+    }
+    
+    function toggleTodoStatus(uid, completed) {
+        fetch('/todos/status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `uid=${encodeURIComponent(uid)}&completed=${completed}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update local todo status
+                const todo = todos.find(t => t.uid === uid);
+                if (todo) {
+                    todo.status = completed ? 'COMPLETED' : 'NEEDS-ACTION';
+                }
+                renderTodos();
+                updateStats();
+                showNotification('Todo status updated', 'success');
+            } else {
+                // Revert checkbox state
+                const checkbox = document.querySelector(`[data-uid="${uid}"] .todo-checkbox`);
+                checkbox.checked = !completed;
+                showNotification(data.message || 'Failed to update todo', 'error');
+            }
+        })
+        .catch(error => {
+            // Revert checkbox state
+            const checkbox = document.querySelector(`[data-uid="${uid}"] .todo-checkbox`);
+            checkbox.checked = !completed;
+            showNotification('Network error', 'error');
+            console.error('Error updating todo:', error);
+        });
+    }
+    
+    function deleteTodo(uid) {
+        if (!confirm('Are you sure you want to delete this todo?')) {
+            return;
+        }
+        
+        fetch('/todos/delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `uid=${encodeURIComponent(uid)}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove todo from local array
+                todos = todos.filter(t => t.uid !== uid);
+                renderTodos();
+                updateStats();
+                updateCategoryFilter();
+                showNotification('Todo deleted', 'success');
+            } else {
+                showNotification(data.message || 'Failed to delete todo', 'error');
+            }
+        })
+        .catch(error => {
+            showNotification('Network error', 'error');
+            console.error('Error deleting todo:', error);
+        });
+    }
+    
+    function setSyncStatus(status, text) {
+        const indicator = document.getElementById('syncIndicator');
+        const statusText = document.getElementById('syncStatus');
+        
+        indicator.className = 'sync-indicator ' + status;
+        statusText.textContent = text;
+    }
+    
+    function showNotification(message, type = 'success') {
+        const notification = document.getElementById('notification');
+        notification.textContent = message;
+        notification.className = `notification ${type}`;
+        notification.style.display = 'block';
+        
+        setTimeout(() => {
+            notification.style.display = 'none';
+        }, 3000);
+    }
+</script>
+{% endblock %}

@@ -295,6 +295,164 @@ def register_routes(app):
             return jsonify(success=True, message=msg)
         except Exception as e:
             return jsonify(success=False, message=f"Error updating file types: {str(e)}"), 400
+    
+    @app.route('/settings/caldav', methods=['GET', 'POST'])
+    @login_required
+    def caldav_settings():
+        """Get or update CalDAV settings."""
+        if request.method == 'POST':
+            try:
+                enabled = request.form.get('enabled') == 'true'
+                url = request.form.get('url', '').strip()
+                username = request.form.get('username', '').strip()
+                password = request.form.get('password', '').strip()
+                calendar = request.form.get('calendar', 'todos').strip()
+                
+                # Save settings
+                app.db.set_setting('caldav', 'enabled', str(enabled).lower())
+                app.db.set_setting('caldav', 'url', url)
+                app.db.set_setting('caldav', 'username', username)
+                app.db.set_setting('caldav', 'calendar', calendar)
+                
+                # Encrypt and save password if provided
+                if password:
+                    app.db.set_setting('caldav', 'password', password, encrypt=True)
+                
+                return jsonify(success=True, message="CalDAV settings saved successfully")
+                
+            except Exception as e:
+                return jsonify(success=False, message=f"Error saving CalDAV settings: {str(e)}"), 400
+        else:
+            # GET request - return current settings (without password)
+            try:
+                settings = app.db.get_caldav_settings()
+                # Don't return the password for security
+                settings.pop('password', None)
+                return jsonify(success=True, **settings)
+            except Exception as e:
+                return jsonify(success=False, message=f"Error loading CalDAV settings: {str(e)}"), 400
+    
+    @app.route('/settings/caldav/test', methods=['POST'])
+    @login_required
+    def test_caldav_connection():
+        """Test CalDAV connection."""
+        try:
+            url = request.form.get('url', '').strip()
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '').strip()
+            
+            if not all([url, username, password]):
+                return jsonify(success=False, message="Missing connection details"), 400
+            
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            result = client.test_connection(url, username, password)
+            
+            return jsonify(**result)
+            
+        except Exception as e:
+            return jsonify(success=False, message=f"Connection test failed: {str(e)}"), 400
+    
+    @app.route('/todos')
+    @login_required
+    def todos_page():
+        """Render the todos page."""
+        return render_template('todos.html')
+    
+    @app.route('/todos/sync', methods=['POST'])
+    @login_required
+    def sync_todos():
+        """Sync todos with CalDAV server."""
+        try:
+            settings = app.db.get_caldav_settings()
+            
+            if not settings['enabled']:
+                return jsonify(success=False, message="CalDAV integration is disabled")
+            
+            if not all([settings['url'], settings['username'], settings['password']]):
+                return jsonify(success=False, message="CalDAV settings incomplete")
+            
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            
+            # Connect to CalDAV server
+            if not client.connect(settings['url'], settings['username'], 
+                                  settings['password'], settings['calendar']):
+                return jsonify(success=False, message="Failed to connect to CalDAV server")
+            
+            # Get todos from server
+            todos = client.get_todos(include_completed=True)
+            
+            return jsonify(success=True, todos=todos)
+            
+        except Exception as e:
+            app.logger.error(f"Error syncing todos: {e}")
+            return jsonify(success=False, message=f"Sync failed: {str(e)}"), 500
+    
+    @app.route('/todos/status', methods=['POST'])
+    @login_required
+    def update_todo_status():
+        """Update todo completion status."""
+        try:
+            uid = request.form.get('uid')
+            completed = request.form.get('completed') == 'true'
+            
+            if not uid:
+                return jsonify(success=False, message="Missing todo UID"), 400
+            
+            settings = app.db.get_caldav_settings()
+            
+            if not settings['enabled']:
+                return jsonify(success=False, message="CalDAV integration is disabled")
+            
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            
+            # Connect and update status
+            if not client.connect(settings['url'], settings['username'], 
+                                  settings['password'], settings['calendar']):
+                return jsonify(success=False, message="Failed to connect to CalDAV server")
+            
+            if client.update_todo_status(uid, completed):
+                return jsonify(success=True, message="Todo status updated")
+            else:
+                return jsonify(success=False, message="Failed to update todo status")
+            
+        except Exception as e:
+            app.logger.error(f"Error updating todo status: {e}")
+            return jsonify(success=False, message=f"Update failed: {str(e)}"), 500
+    
+    @app.route('/todos/delete', methods=['POST'])
+    @login_required
+    def delete_todo():
+        """Delete a todo."""
+        try:
+            uid = request.form.get('uid')
+            
+            if not uid:
+                return jsonify(success=False, message="Missing todo UID"), 400
+            
+            settings = app.db.get_caldav_settings()
+            
+            if not settings['enabled']:
+                return jsonify(success=False, message="CalDAV integration is disabled")
+            
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            
+            # Connect and delete todo
+            if not client.connect(settings['url'], settings['username'], 
+                                  settings['password'], settings['calendar']):
+                return jsonify(success=False, message="Failed to connect to CalDAV server")
+            
+            if client.delete_todo(uid):
+                return jsonify(success=True, message="Todo deleted")
+            else:
+                return jsonify(success=False, message="Failed to delete todo")
+            
+        except Exception as e:
+            app.logger.error(f"Error deleting todo: {e}")
+            return jsonify(success=False, message=f"Delete failed: {str(e)}"), 500
 
     @app.route('/search')
     @login_required
