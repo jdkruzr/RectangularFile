@@ -520,8 +520,8 @@ class QwenVLProcessor:
                 self.logger.warning(f"CalDAV settings incomplete, skipping todo creation. url={bool(settings['url'])}, username={bool(settings['username'])}, password={bool(settings['password'])}")
                 return
             
-            # Filter for yellow highlights only
-            yellow_highlights = [ann for ann in annotations if ann.get('type') == 'yellow_highlight']
+            # Filter for yellow highlights only  
+            yellow_highlights = [ann for ann in annotations if ann.get('annotation_type') == 'yellow_highlight']
             self.logger.info(f"Filtered annotations: {len(yellow_highlights)} yellow highlights out of {len(annotations)} total")
             
             if not yellow_highlights:
@@ -530,7 +530,7 @@ class QwenVLProcessor:
             
             self.logger.info(f"Creating {len(yellow_highlights)} todos from highlights")
             for i, highlight in enumerate(yellow_highlights):
-                self.logger.info(f"Highlight {i+1}: type={highlight.get('type')}, text='{highlight.get('transcribed_text', '')[:50]}...'")
+                self.logger.info(f"Highlight {i+1}: type={highlight.get('annotation_type')}, text='{highlight.get('text', '')[:50]}...'")
                 
             
             # Import CalDAV client
@@ -547,10 +547,10 @@ class QwenVLProcessor:
             for highlight in yellow_highlights:
                 try:
                     # Extract text from highlight (should already be in annotation)
-                    text = highlight.get('transcribed_text', '').strip()
+                    text = highlight.get('text', '').strip()
                     
                     if not text:
-                        self.logger.warning(f"No text found for highlight on page {highlight.get('page', 'unknown')}")
+                        self.logger.warning(f"No text found for highlight on page {highlight.get('page_number', 'unknown')}")
                         continue
                     
                     # Create a meaningful summary (first line or limited chars)
@@ -564,7 +564,7 @@ class QwenVLProcessor:
                     
                     # Set categories to identify source
                     categories = ['RectangularFile', 'Handwritten']
-                    page_num = highlight.get('page')
+                    page_num = highlight.get('page_number')
                     if page_num:
                         categories.append(f'Page-{page_num}')
                     
