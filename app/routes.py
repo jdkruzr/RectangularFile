@@ -455,6 +455,39 @@ def register_routes(app):
         except Exception as e:
             app.logger.error(f"Error deleting todo: {e}")
             return jsonify(success=False, message=f"Delete failed: {str(e)}"), 500
+    
+    @app.route('/todos/edit', methods=['POST'])
+    @login_required
+    def edit_todo():
+        """Edit a todo summary."""
+        try:
+            uid = request.form.get('uid')
+            new_summary = request.form.get('summary', '').strip()
+            
+            if not uid or not new_summary:
+                return jsonify(success=False, message="Missing todo UID or summary"), 400
+            
+            settings = app.db.get_caldav_settings()
+            
+            if not settings['enabled']:
+                return jsonify(success=False, message="CalDAV integration is disabled")
+            
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            
+            # Connect and update todo
+            if not client.connect(settings['url'], settings['username'], 
+                                  settings['password'], settings['calendar']):
+                return jsonify(success=False, message="Failed to connect to CalDAV server")
+            
+            if client.update_todo_summary(uid, new_summary):
+                return jsonify(success=True, message="Todo updated")
+            else:
+                return jsonify(success=False, message="Failed to update todo")
+            
+        except Exception as e:
+            app.logger.error(f"Error editing todo: {e}")
+            return jsonify(success=False, message=f"Edit failed: {str(e)}"), 500
 
     @app.route('/search')
     @login_required

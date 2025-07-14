@@ -167,6 +167,33 @@
         color: white;
     }
     
+    .action-btn.edit {
+        color: #007bff;
+        border-color: #007bff;
+    }
+    
+    .action-btn.edit:hover {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    .todo-summary.editing {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        padding: 5px;
+        border-radius: 3px;
+    }
+    
+    .edit-input {
+        width: 100%;
+        border: none;
+        background: transparent;
+        font-size: inherit;
+        font-weight: inherit;
+        font-family: inherit;
+        outline: none;
+    }
+    
     .empty-state {
         text-align: center;
         padding: 60px 20px;
@@ -251,10 +278,10 @@
     
     <div class="todo-filters">
         <label>
-            <input type="radio" name="filter" value="all" checked> All
+            <input type="radio" name="filter" value="all"> All
         </label>
         <label>
-            <input type="radio" name="filter" value="pending"> Pending
+            <input type="radio" name="filter" value="pending" checked> Pending
         </label>
         <label>
             <input type="radio" name="filter" value="completed"> Completed
@@ -279,7 +306,7 @@
 {% block scripts %}
 <script>
     let todos = [];
-    let currentFilter = 'all';
+    let currentFilter = 'pending';
     let currentCategory = '';
     
     document.addEventListener('DOMContentLoaded', function() {
@@ -346,6 +373,13 @@
             return true;
         });
         
+        // Sort by creation date (newest first)
+        filteredTodos.sort((a, b) => {
+            const dateA = new Date(a.created || 0);
+            const dateB = new Date(b.created || 0);
+            return dateB - dateA; // Newest first
+        });
+        
         if (filteredTodos.length === 0) {
             todoList.innerHTML = `
                 <div class="empty-state">
@@ -372,7 +406,7 @@
                     <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''} 
                            onchange="toggleTodoStatus('${todo.uid}', this.checked)">
                     <div class="todo-content">
-                        <div class="todo-summary ${isCompleted ? 'completed' : ''}">${todo.summary}</div>
+                        <div class="todo-summary ${isCompleted ? 'completed' : ''}" data-uid="${todo.uid}" onclick="startEdit('${todo.uid}')">${todo.summary}</div>
                         ${todo.description ? `<div class="todo-description">${todo.description}</div>` : ''}
                         <div class="todo-meta">
                             <span class="todo-priority priority-${priorityClass}">${priorityText}</span>
@@ -382,6 +416,7 @@
                         </div>
                     </div>
                     <div class="todo-actions">
+                        <button class="action-btn edit" onclick="startEdit('${todo.uid}')">Edit</button>
                         <button class="action-btn delete" onclick="deleteTodo('${todo.uid}')">Delete</button>
                     </div>
                 </div>
@@ -493,6 +528,86 @@
         
         indicator.className = 'sync-indicator ' + status;
         statusText.textContent = text;
+    }
+    
+    function startEdit(uid) {
+        const summaryDiv = document.querySelector(`[data-uid="${uid}"] .todo-summary`);
+        if (summaryDiv.querySelector('.edit-input')) {
+            return; // Already editing
+        }
+        
+        const currentText = summaryDiv.textContent;
+        summaryDiv.classList.add('editing');
+        
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'edit-input';
+        input.value = currentText;
+        
+        // Handle save on Enter, cancel on Escape
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                saveEdit(uid, input.value.trim());
+            } else if (e.key === 'Escape') {
+                cancelEdit(uid, currentText);
+            }
+        });
+        
+        // Handle save on blur (click away)
+        input.addEventListener('blur', function() {
+            saveEdit(uid, input.value.trim());
+        });
+        
+        summaryDiv.innerHTML = '';
+        summaryDiv.appendChild(input);
+        input.focus();
+        input.select();
+    }
+    
+    function saveEdit(uid, newText) {
+        if (!newText) {
+            return;
+        }
+        
+        fetch('/todos/edit', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `uid=${encodeURIComponent(uid)}&summary=${encodeURIComponent(newText)}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update local todo
+                const todo = todos.find(t => t.uid === uid);
+                if (todo) {
+                    todo.summary = newText;
+                }
+                renderTodos();
+                showNotification('Todo updated successfully', 'success');
+            } else {
+                // Revert on error
+                const todo = todos.find(t => t.uid === uid);
+                const originalText = todo ? todo.summary : newText;
+                cancelEdit(uid, originalText);
+                showNotification(data.message || 'Failed to update todo', 'error');
+            }
+        })
+        .catch(error => {
+            // Revert on error
+            const todo = todos.find(t => t.uid === uid);
+            const originalText = todo ? todo.summary : newText;
+            cancelEdit(uid, originalText);
+            showNotification('Network error', 'error');
+            console.error('Error updating todo:', error);
+        });
+    }
+    
+    function cancelEdit(uid, originalText) {
+        const summaryDiv = document.querySelector(`[data-uid="${uid}"] .todo-summary`);
+        summaryDiv.classList.remove('editing');
+        summaryDiv.textContent = originalText;
     }
     
     function showNotification(message, type = 'success') {

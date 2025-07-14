@@ -302,6 +302,43 @@ END:VCALENDAR"""
             logger.error(f"Failed to update todo status: {e}")
             return False
     
+    def update_todo_summary(self, uid: str, new_summary: str) -> bool:
+        """
+        Update todo summary/title
+        
+        Args:
+            uid: UID of todo to update
+            new_summary: New summary text
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.calendar:
+            logger.error("Not connected to CalDAV server")
+            return False
+        
+        try:
+            # Find the todo by UID
+            todos = self.calendar.todos(include_completed=True)
+            
+            for todo in todos:
+                vtodo = todo.icalendar_component
+                if str(vtodo.get('UID')) == uid:
+                    # Update summary
+                    vtodo['SUMMARY'] = new_summary
+                    
+                    # Save changes
+                    todo.save()
+                    logger.info(f"Updated todo {uid} summary to: {new_summary}")
+                    return True
+            
+            logger.warning(f"Todo with UID {uid} not found")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to update todo summary: {e}")
+            return False
+    
     def delete_todo(self, uid: str) -> bool:
         """
         Delete a todo by UID
