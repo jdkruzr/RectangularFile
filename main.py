@@ -84,9 +84,8 @@ def handle_removed_file(relative_path):
     print(f"Marking removed file: {filepath}")
     db.mark_document_removed(filepath)
 
-# Register callbacks with the file watcher
-file_watcher.register_callback(process_new_file)
-file_watcher.register_removal_callback(handle_removed_file)
+# File watcher callbacks are now registered in app/__init__.py via _init_file_watcher()
+# to avoid duplicate processing
 
 def cleanup():
     """Clean up resources before shutdown."""
