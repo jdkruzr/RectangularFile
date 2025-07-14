@@ -631,7 +631,8 @@ class DatabaseManager:
             'url': self.get_setting('caldav', 'url'),
             'username': self.get_setting('caldav', 'username'),
             'password': self.get_setting('caldav', 'password', decrypt=True),
-            'calendar': self.get_setting('caldav', 'calendar') or 'todos'
+            'calendar': self.get_setting('caldav', 'calendar') or 'todos',
+            'base_url': self.get_setting('caldav', 'base_url') or 'http://localhost:5000'
         }
         return settings
 

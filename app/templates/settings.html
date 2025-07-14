@@ -93,6 +93,11 @@
         <input type="text" id="caldavCalendar" placeholder="todos" value="todos">
         <p>Name of the calendar to store todos in.</p>
     </div>
+    <div class="form-group">
+        <label for="caldavBaseUrl">RectangularFile Base URL</label>
+        <input type="url" id="caldavBaseUrl" placeholder="https://rf.broken.works">
+        <p>Base URL for links back to documents (e.g., https://yourserver.com).</p>
+    </div>
     <button id="testCalDAVConnection" class="button" style="margin-right: 10px;">Test Connection</button>
     <button id="saveCalDAVSettings" class="button">Save CalDAV Settings</button>
 </div>
@@ -122,6 +127,7 @@
                     document.getElementById('caldavUrl').value = data.url || '';
                     document.getElementById('caldavUsername').value = data.username || '';
                     document.getElementById('caldavCalendar').value = data.calendar || 'todos';
+                    document.getElementById('caldavBaseUrl').value = data.base_url || '';
                     // Don't populate password for security
                 }
             })
@@ -217,6 +223,7 @@
         const username = document.getElementById('caldavUsername').value;
         const password = document.getElementById('caldavPassword').value;
         const calendar = document.getElementById('caldavCalendar').value;
+        const baseUrl = document.getElementById('caldavBaseUrl').value;
         
         const formData = new FormData();
         formData.append('enabled', enabled);
@@ -224,6 +231,7 @@
         formData.append('username', username);
         formData.append('password', password);
         formData.append('calendar', calendar);
+        formData.append('base_url', baseUrl);
         
         fetch('/settings/caldav', {
             method: 'POST',

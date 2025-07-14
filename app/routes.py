@@ -307,12 +307,14 @@ def register_routes(app):
                 username = request.form.get('username', '').strip()
                 password = request.form.get('password', '').strip()
                 calendar = request.form.get('calendar', 'todos').strip()
+                base_url = request.form.get('base_url', '').strip()
                 
                 # Save settings
                 app.db.set_setting('caldav', 'enabled', str(enabled).lower())
                 app.db.set_setting('caldav', 'url', url)
                 app.db.set_setting('caldav', 'username', username)
                 app.db.set_setting('caldav', 'calendar', calendar)
+                app.db.set_setting('caldav', 'base_url', base_url)
                 
                 # Encrypt and save password if provided
                 if password:

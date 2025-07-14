@@ -338,7 +338,7 @@ class QwenVLProcessor:
                     
                     # Create CalDAV todos from yellow highlights
                     self.logger.info("Attempting to create CalDAV todos from highlights")
-                    self._create_todos_from_highlights(annotations, db_manager)
+                    self._create_todos_from_highlights(annotations, db_manager, doc_id)
                 
                 db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
                 total_words = sum(p.get('word_count', 0) for p in page_data.values())
@@ -503,7 +503,7 @@ class QwenVLProcessor:
             self.logger.error(f"Error extracting text from region: {e}")
             return ""
     
-    def _create_todos_from_highlights(self, annotations: List[Dict], db_manager) -> None:
+    def _create_todos_from_highlights(self, annotations: List[Dict], db_manager, doc_id: int) -> None:
         """Create CalDAV todos from yellow highlight annotations."""
         try:
             self.logger.info(f"_create_todos_from_highlights called with {len(annotations)} annotations")
@@ -519,6 +519,19 @@ class QwenVLProcessor:
             if not all([settings['url'], settings['username'], settings['password']]):
                 self.logger.warning(f"CalDAV settings incomplete, skipping todo creation. url={bool(settings['url'])}, username={bool(settings['username'])}, password={bool(settings['password'])}")
                 return
+            
+            # Extract green box categories from all annotations in the document
+            green_boxes = [ann for ann in annotations if ann.get('annotation_type') == 'green_box']
+            green_box_categories = []
+            for green_box in green_boxes:
+                text = green_box.get('text', '').strip()
+                if text:
+                    # Clean and add as category (removing special chars that might break CalDAV)
+                    clean_category = ''.join(c for c in text if c.isalnum() or c in ' -_').strip()
+                    if clean_category:
+                        green_box_categories.append(clean_category)
+            
+            self.logger.info(f"Found {len(green_box_categories)} green box categories: {green_box_categories}")
             
             # Filter for yellow highlights only  
             yellow_highlights = [ann for ann in annotations if ann.get('annotation_type') == 'yellow_highlight']
@@ -560,14 +573,28 @@ class QwenVLProcessor:
                     # Create a meaningful summary (first line or limited chars)
                     summary = cleaned_text[:100] if len(cleaned_text) <= 100 else cleaned_text[:100] + "..."
                     
-                    # Use full cleaned text as description if longer than summary
-                    description = cleaned_text if len(cleaned_text) > len(summary) else ""
+                    # Build enhanced description with original text and document link
+                    description_parts = []
                     
-                    # Set categories to identify source
+                    # Add full text if longer than summary
+                    if len(cleaned_text) > len(summary):
+                        description_parts.append(cleaned_text)
+                    
+                    # Add document source link using configured base URL
+                    base_url = settings.get('base_url', 'http://localhost:5000').rstrip('/')
+                    document_link = f"Source: Document #{doc_id} - {base_url}/document/{doc_id}"
+                    description_parts.append(document_link)
+                    
+                    description = "\n\n".join(description_parts)
+                    
+                    # Set categories: base categories + green box categories
                     categories = ['RectangularFile', 'Handwritten']
                     page_num = highlight.get('page_number')
                     if page_num:
                         categories.append(f'Page-{page_num}')
+                    
+                    # Add green box categories
+                    categories.extend(green_box_categories)
                     
                     # Create todo with medium priority
                     todo_uid = client.create_todo(
