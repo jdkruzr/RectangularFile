@@ -254,6 +254,84 @@
         color: #721c24;
         border: 1px solid #f5c6cb;
     }
+    
+    .new-todo-form {
+        background: white;
+        border: 2px solid #28a745;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    
+    .new-todo-form.show {
+        display: block;
+    }
+    
+    .form-row {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        align-items: center;
+    }
+    
+    .form-group {
+        flex: 1;
+    }
+    
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+        color: #333;
+    }
+    
+    .form-input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    
+    .form-input:focus {
+        outline: none;
+        border-color: #28a745;
+        box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+    }
+    
+    .form-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+    
+    .btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    .btn-primary {
+        background-color: #28a745;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background-color: #218838;
+    }
+    
+    .btn-secondary {
+        background-color: #6c757d;
+        color: white;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #5a6268;
+    }
 </style>
 {% endblock %}
 
@@ -265,10 +343,57 @@
             <div class="sync-indicator" id="syncIndicator"></div>
             <span id="syncStatus">Connected</span>
             <button id="syncNow" class="button" style="margin-left: 10px;">Sync Now</button>
+            <button id="addTodo" class="button" style="margin-left: 10px; background-color: #28a745; border-color: #28a745;">+ New Todo</button>
         </div>
     </div>
     
     <div id="notification" class="notification"></div>
+    
+    <div id="newTodoForm" class="new-todo-form">
+        <h3>Create New Todo</h3>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="todoSummary">Summary *</label>
+                <input type="text" id="todoSummary" class="form-input" placeholder="Enter todo summary" required>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="todoDescription">Description</label>
+                <textarea id="todoDescription" class="form-input" rows="3" placeholder="Optional description"></textarea>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="todoPriority">Priority</label>
+                <select id="todoPriority" class="form-input">
+                    <option value="1">High (1)</option>
+                    <option value="2">High (2)</option>
+                    <option value="3">High (3)</option>
+                    <option value="4">Medium-High (4)</option>
+                    <option value="5" selected>Medium (5)</option>
+                    <option value="6">Medium-Low (6)</option>
+                    <option value="7">Low (7)</option>
+                    <option value="8">Low (8)</option>
+                    <option value="9">Lowest (9)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="todoDueDate">Due Date</label>
+                <input type="date" id="todoDueDate" class="form-input">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="todoCategories">Categories</label>
+                <input type="text" id="todoCategories" class="form-input" placeholder="Comma-separated categories (e.g., Work, Personal)">
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="hideNewTodoForm()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="createNewTodo()">Create Todo</button>
+        </div>
+    </div>
     
     <div class="todo-stats">
         <span>Total: <strong id="totalCount">0</strong></span>
@@ -328,6 +453,11 @@
         // Sync button
         document.getElementById('syncNow').addEventListener('click', function() {
             loadTodos(true);
+        });
+        
+        // Add Todo button
+        document.getElementById('addTodo').addEventListener('click', function() {
+            showNewTodoForm();
         });
     });
     
@@ -619,6 +749,73 @@
         setTimeout(() => {
             notification.style.display = 'none';
         }, 3000);
+    }
+    
+    function showNewTodoForm() {
+        const form = document.getElementById('newTodoForm');
+        form.classList.add('show');
+        document.getElementById('todoSummary').focus();
+    }
+    
+    function hideNewTodoForm() {
+        const form = document.getElementById('newTodoForm');
+        form.classList.remove('show');
+        
+        // Clear form fields
+        document.getElementById('todoSummary').value = '';
+        document.getElementById('todoDescription').value = '';
+        document.getElementById('todoPriority').value = '5';
+        document.getElementById('todoDueDate').value = '';
+        document.getElementById('todoCategories').value = '';
+    }
+    
+    function createNewTodo() {
+        const summary = document.getElementById('todoSummary').value.trim();
+        const description = document.getElementById('todoDescription').value.trim();
+        const priority = parseInt(document.getElementById('todoPriority').value);
+        const dueDate = document.getElementById('todoDueDate').value;
+        const categoriesText = document.getElementById('todoCategories').value.trim();
+        
+        if (!summary) {
+            showNotification('Summary is required', 'error');
+            document.getElementById('todoSummary').focus();
+            return;
+        }
+        
+        // Parse categories
+        const categories = categoriesText ? categoriesText.split(',').map(c => c.trim()).filter(c => c) : [];
+        
+        // Prepare form data
+        const formData = new FormData();
+        formData.append('summary', summary);
+        formData.append('description', description);
+        formData.append('priority', priority.toString());
+        if (dueDate) {
+            formData.append('due_date', dueDate);
+        }
+        if (categories.length > 0) {
+            formData.append('categories', JSON.stringify(categories));
+        }
+        
+        // Send request to create todo
+        fetch('/todos/create', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                hideNewTodoForm();
+                loadTodos(); // Refresh the todo list
+                showNotification('Todo created successfully', 'success');
+            } else {
+                showNotification(data.message || 'Failed to create todo', 'error');
+            }
+        })
+        .catch(error => {
+            showNotification('Network error', 'error');
+            console.error('Error creating todo:', error);
+        });
     }
 </script>
 {% endblock %}

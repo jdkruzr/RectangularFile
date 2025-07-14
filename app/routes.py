@@ -489,6 +489,70 @@ def register_routes(app):
             app.logger.error(f"Error editing todo: {e}")
             return jsonify(success=False, message=f"Edit failed: {str(e)}"), 500
 
+    @app.route('/todos/create', methods=['POST'])
+    @login_required
+    def create_todo():
+        """Create a new todo."""
+        try:
+            summary = request.form.get('summary', '').strip()
+            description = request.form.get('description', '').strip()
+            priority = int(request.form.get('priority', 5))
+            due_date_str = request.form.get('due_date', '').strip()
+            categories_json = request.form.get('categories', '[]')
+            
+            if not summary:
+                return jsonify(success=False, message="Summary is required"), 400
+            
+            # Parse categories
+            try:
+                import json
+                categories = json.loads(categories_json) if categories_json else []
+            except json.JSONDecodeError:
+                categories = []
+            
+            # Parse due date
+            due_date = None
+            if due_date_str:
+                try:
+                    from datetime import datetime
+                    due_date = datetime.strptime(due_date_str, '%Y-%m-%d')
+                except ValueError:
+                    return jsonify(success=False, message="Invalid due date format"), 400
+            
+            # Get CalDAV settings
+            settings = app.db.get_caldav_settings()
+            
+            if not settings['enabled']:
+                return jsonify(success=False, message="CalDAV integration is disabled")
+            
+            if not all([settings['url'], settings['username'], settings['password']]):
+                return jsonify(success=False, message="CalDAV settings incomplete")
+            
+            # Connect to CalDAV and create todo
+            from processing.caldav_client import CalDAVTodoClient
+            client = CalDAVTodoClient()
+            
+            if not client.connect(settings['url'], settings['username'], 
+                                  settings['password'], settings['calendar']):
+                return jsonify(success=False, message="Failed to connect to CalDAV server")
+            
+            todo_uid = client.create_todo(
+                summary=summary,
+                description=description,
+                due_date=due_date,
+                priority=priority,
+                categories=categories
+            )
+            
+            if todo_uid:
+                return jsonify(success=True, message="Todo created successfully", uid=todo_uid)
+            else:
+                return jsonify(success=False, message="Failed to create todo")
+            
+        except Exception as e:
+            app.logger.error(f"Error creating todo: {e}")
+            return jsonify(success=False, message=f"Create failed: {str(e)}"), 500
+
     @app.route('/search')
     @login_required
     def search_page():
