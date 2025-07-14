@@ -380,29 +380,58 @@
         <!-- Text Only Tab -->
         <div id="text-only" class="tab-content">
             {% if text_content %}
-                {% for page_num, page in text_content.items() %}
-                    <div class="page-content">
-                        <div class="page-header">
-                            <strong>Page {{ page_num }}</strong>
-                            {% if page.source %}
-                            <span class="source-label {{ page.source }}">{{ page.source|capitalize }}</span>
-                            {% endif %}
-                        </div>
-                        
-                        <div class="page-text editable-text" 
-                            id="text-only-page-{{ page_num }}"
-                            data-doc-id="{{ document.id }}"
-                            data-page-num="{{ page_num }}"
-                            data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
-                            <div class="text-content">{{ page.text }}</div>
-                            <div class="edit-controls">
-                                <textarea class="edit-textarea">{{ page.text }}</textarea>
-                                <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
-                                <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                <div class="text-view-controls" style="margin-bottom: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 4px;">
+                    <label style="font-weight: 500; margin-right: 15px;">View Mode:</label>
+                    <label style="margin-right: 15px;">
+                        <input type="radio" name="text-view-mode" value="pages" checked> 
+                        <span style="margin-left: 5px;">Page by Page</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="text-view-mode" value="concatenated"> 
+                        <span style="margin-left: 5px;">Full Document (Concatenated)</span>
+                    </label>
+                    <button id="copyAllText" style="margin-left: 20px; padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer;">Copy All Text</button>
+                </div>
+                
+                <!-- Page by Page View -->
+                <div id="pages-view">
+                    {% for page_num, page in text_content.items() %}
+                        <div class="page-content">
+                            <div class="page-header">
+                                <strong>Page {{ page_num }}</strong>
+                                {% if page.source %}
+                                <span class="source-label {{ page.source }}">{{ page.source|capitalize }}</span>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="page-text editable-text" 
+                                id="text-only-page-{{ page_num }}"
+                                data-doc-id="{{ document.id }}"
+                                data-page-num="{{ page_num }}"
+                                data-field-type="{{ 'ocr_text' if page.source == 'ocr' else 'text_content' }}">
+                                <div class="text-content">{{ page.text }}</div>
+                                <div class="edit-controls">
+                                    <textarea class="edit-textarea">{{ page.text }}</textarea>
+                                    <button class="save-edit-btn" onclick="saveTranscription(this)">Save</button>
+                                    <button class="cancel-edit-btn" onclick="cancelEdit(this)">Cancel</button>
+                                </div>
                             </div>
                         </div>
+                    {% endfor %}
+                </div>
+                
+                <!-- Concatenated View -->
+                <div id="concatenated-view" style="display: none;">
+                    <div class="concatenated-text-container" style="background-color: #f8f9fa; padding: 20px; border-radius: 4px; border: 1px solid #ddd;">
+                        <div class="concatenated-text" style="line-height: 1.6; white-space: pre-wrap; font-family: monospace; background-color: white; padding: 15px; border-radius: 4px; max-height: 600px; overflow-y: auto;" id="fullDocumentText">{% for page_num, page in text_content.items() %}{{ page.text }}{% if not loop.last %}
+
+{% endif %}{% endfor %}</div>
+                        <div style="margin-top: 15px; text-align: right;">
+                            <button onclick="selectAllText()" style="padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">Select All</button>
+                            <span style="color: #666; font-size: 0.9em;">Tip: Use Ctrl+A to select all, then Ctrl+C to copy</span>
+                        </div>
                     </div>
-                {% endfor %}
+                </div>
             {% else %}
                 <p class="no-results">No text content available for this document.</p>
             {% endif %}
@@ -578,6 +607,15 @@
         editControls.classList.remove('active');
     }
 
+    function selectAllText() {
+        const textElement = document.getElementById('fullDocumentText');
+        const range = document.createRange();
+        range.selectNodeContents(textElement);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }
+
     // Tab switching
     document.addEventListener('DOMContentLoaded', function() {
         const tabButtons = document.querySelectorAll('.tab-button');
@@ -592,6 +630,42 @@
                 document.getElementById(this.getAttribute('data-tab')).classList.add('active');
             });
         });
+        
+        // Text view mode switching
+        const textViewModeRadios = document.querySelectorAll('input[name="text-view-mode"]');
+        textViewModeRadios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                const pagesView = document.getElementById('pages-view');
+                const concatenatedView = document.getElementById('concatenated-view');
+                
+                if (this.value === 'concatenated') {
+                    pagesView.style.display = 'none';
+                    concatenatedView.style.display = 'block';
+                } else {
+                    pagesView.style.display = 'block';
+                    concatenatedView.style.display = 'none';
+                }
+            });
+        });
+        
+        // Copy all text button
+        const copyAllTextBtn = document.getElementById('copyAllText');
+        if (copyAllTextBtn) {
+            copyAllTextBtn.addEventListener('click', function() {
+                const fullText = document.getElementById('fullDocumentText').textContent;
+                navigator.clipboard.writeText(fullText).then(function() {
+                    const originalText = copyAllTextBtn.textContent;
+                    copyAllTextBtn.textContent = 'Copied!';
+                    copyAllTextBtn.style.backgroundColor = '#28a745';
+                    setTimeout(() => {
+                        copyAllTextBtn.textContent = originalText;
+                        copyAllTextBtn.style.backgroundColor = '#007bff';
+                    }, 2000);
+                }).catch(function(err) {
+                    alert('Could not copy text: ' + err);
+                });
+            });
+        }
         
         // Highlight search terms if provided
         const highlight = "{{ highlight }}";
