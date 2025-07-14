@@ -279,8 +279,10 @@ END:VCALENDAR"""
                     vtodo['STATUS'] = status
                     
                     if completed:
-                        # Set completion date
-                        vtodo['COMPLETED'] = datetime.now(timezone.utc)
+                        # Set completion date in proper iCalendar format
+                        from icalendar import vDatetime
+                        completed_time = datetime.now(timezone.utc)
+                        vtodo['COMPLETED'] = vDatetime(completed_time)
                         vtodo['PERCENT-COMPLETE'] = 100
                     else:
                         # Remove completion date
