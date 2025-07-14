@@ -553,14 +553,15 @@ class QwenVLProcessor:
                         self.logger.warning(f"No text found for highlight on page {highlight.get('page_number', 'unknown')}")
                         continue
                     
-                    # Create a meaningful summary (first line or limited chars)
-                    lines = text.split('\n')
-                    summary = lines[0][:100] if lines[0] else text[:100]
-                    if len(summary) == 100 and len(text) > 100:
-                        summary += "..."
+                    # Clean up text for CalDAV compatibility
+                    # Replace newlines with spaces and normalize whitespace
+                    cleaned_text = ' '.join(text.split())
                     
-                    # Use full text as description if longer than summary
-                    description = text if len(text) > len(summary) else ""
+                    # Create a meaningful summary (first line or limited chars)
+                    summary = cleaned_text[:100] if len(cleaned_text) <= 100 else cleaned_text[:100] + "..."
+                    
+                    # Use full cleaned text as description if longer than summary
+                    description = cleaned_text if len(cleaned_text) > len(summary) else ""
                     
                     # Set categories to identify source
                     categories = ['RectangularFile', 'Handwritten']
