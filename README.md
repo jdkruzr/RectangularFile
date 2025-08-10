@@ -10,6 +10,7 @@ RectangularFile is a powerful open-source document management system designed fo
 - **📝 Annotation Detection** - Automatically detects and indexes:
   - ✅ Green boxed text (for todos/important items)
   - 🟨 Yellow highlighted text
+- **📅 CalDAV To-Do Conversion of Highlights** - Automatically takes highlighted text from any note and turns it into a tagged to-do on your favorite CalDAV server
 - **🔍 Full-Text Search** - Search across all your handwritten notes with folder filtering
 - **📁 Multi-Device Support** - Automatically organizes notes from multiple devices
 - **☁️ Word Clouds** - Visualize common themes across your notes
