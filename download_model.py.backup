@@ -1,7 +1,7 @@
 # Utility script for downloading the model we use
 import os
 from pathlib import Path
-from transformers import AutoTokenizer, AutoProcessor, AutoModel
+from transformers import AutoTokenizer, AutoProcessor, AutoModelForCausalLM
 
 # Set cache directory explicitly
 cache_dir = "/mnt/rectangularfile/qwencache"
@@ -29,9 +29,9 @@ processor = AutoProcessor.from_pretrained(
     cache_dir=cache_dir
 )
 
-# Download the model using AutoModel which should handle the correct class automatically
+# Download the model using AutoModelForCausalLM
 print("Downloading model (this will take some time)...")
-model = AutoModel.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     model_name, 
     trust_remote_code=True,
     cache_dir=cache_dir,
