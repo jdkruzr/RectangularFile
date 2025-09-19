@@ -12,7 +12,7 @@ os.environ['TRANSFORMERS_CACHE'] = cache_dir
 Path(cache_dir).mkdir(parents=True, exist_ok=True)
 print(f"Using cache directory: {cache_dir}")
 
-model_name = "Qwen/Qwen2.5-VL-3B-Instruct"
+model_name = "Qwen/Qwen2.5-VL-7B-Instruct"
 print(f"Downloading {model_name}...")
 
 # Download tokenizer and processor
