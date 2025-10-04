@@ -39,7 +39,7 @@ sudo apt install -y python3-pip python3-venv python3-dev
 sudo apt install -y poppler-utils
 
 # Install image processing libraries
-sudo apt install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+sudo apt install -y libgl1 libglx-mesa0 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
 
 # Install git (if not already installed)
 sudo apt install -y git
