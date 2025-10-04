@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from flask import Flask
 from flask_login import LoginManager
+from config import config
 
 def create_app(
     db_manager, 
@@ -26,14 +27,14 @@ def create_app(
         static_folder=static_dir
     )
     
-    # Configure app
+    # Configure app using centralized config
     app.config.update(
-        UPLOAD_FOLDER="/mnt/onyx",
-        MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50MB max upload
-        SECRET_KEY=os.environ.get('SECRET_KEY', 'your-default-secret-key-change-this'),
-        SESSION_COOKIE_NAME='rectangularfile_session',
-        SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE='Lax'
+        UPLOAD_FOLDER=config.UPLOAD_FOLDER,
+        MAX_CONTENT_LENGTH=config.MAX_CONTENT_LENGTH,
+        SECRET_KEY=config.SECRET_KEY,
+        SESSION_COOKIE_NAME=config.SESSION_COOKIE_NAME,
+        SESSION_COOKIE_HTTPONLY=config.SESSION_COOKIE_HTTPONLY,
+        SESSION_COOKIE_SAMESITE=config.SESSION_COOKIE_SAMESITE
     )
     
     # Initialize Flask-Login AFTER app is created

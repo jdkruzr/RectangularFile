@@ -9,6 +9,8 @@ import time
 # Set CUDA memory allocation configuration
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
+from config import config
+
 import torch
 from transformers import (
     AutoTokenizer,
@@ -30,10 +32,14 @@ Image.MAX_IMAGE_PIXELS = 200000000
 class QwenVLProcessor:
     """Process PDF documents using Qwen2.5-VL-7B-Instruct for text recognition."""
 
-    def __init__(self, model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct", use_cache: bool = True):
+    def __init__(self, model_name: str = None, use_cache: bool = True):
         """Initialize the Qwen VL processor with GPU support."""
-        # Set cache directory
-        os.environ['TRANSFORMERS_CACHE'] = '/mnt/rectangularfile/qwencache'
+        # Use configured model name if not explicitly provided
+        if model_name is None:
+            model_name = config.MODEL_NAME
+
+        # Set cache directory from config
+        os.environ['TRANSFORMERS_CACHE'] = config.MODEL_CACHE_DIR
 
         self.setup_logging()
         self.model_name = model_name
@@ -120,8 +126,8 @@ class QwenVLProcessor:
 
     def _resize_image_if_needed(self, image: Image.Image, doc_id: int, page_num: int) -> Tuple[Image.Image, str]:
         """Resize image if it exceeds memory-safe dimensions and save it to disk."""
-        debug_dir = Path("/mnt/rectangularfile/debug_images")
-        debug_dir.mkdir(exist_ok=True)
+        debug_dir = Path(config.DEBUG_IMAGES_DIR)
+        debug_dir.mkdir(parents=True, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         original_path_str = str(debug_dir / f"original_{timestamp}_doc_{doc_id}_page_{page_num}.jpg")

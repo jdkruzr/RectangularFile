@@ -61,12 +61,26 @@ RectangularFile is a Flask-based document management system for handwritten note
 
 ### Configuration
 
-- Environment variables:
-  - `SECRET_KEY` - Flask secret key
-  - `APP_PASSWORD_HASH` - SHA256 hash of admin password
-  - `UPLOAD_FOLDER` - File monitoring directory (default: `/mnt/onyx`)
+All configuration is centralized in [config.py](config.py) with environment variable support:
+
+**Required Environment Variables:**
+- `SECRET_KEY` - Flask secret key (generate with `python -c 'import secrets; print(secrets.token_hex(32))'`)
+- `APP_PASSWORD_HASH` - SHA256 hash of admin password
+
+**Optional Environment Variables (with defaults):**
+- `UPLOAD_FOLDER` - File monitoring directory (default: `/mnt/onyx`)
+- `DATABASE_PATH` - SQLite database location (default: `/mnt/rectangularfile/pdf_index.db`)
+- `MODEL_NAME` - HuggingFace model identifier (default: `Qwen/Qwen2.5-VL-7B-Instruct`)
+- `MODEL_CACHE_DIR` - Transformers cache (default: `/mnt/rectangularfile/qwencache`)
+- `DEBUG_IMAGES_DIR` - Debug output directory (default: `/mnt/rectangularfile/debug_images`)
+- `POLLING_INTERVAL` - File watcher interval in seconds (default: `30.0`)
+- `FLASK_HOST` - Server bind address (default: `0.0.0.0`)
+- `FLASK_PORT` - Server port (default: `5000`)
+- `FLASK_DEBUG` - Debug mode (default: `false`)
+
+**Hardware Requirements:**
 - GPU requirements: NVIDIA GPU with 16GB+ VRAM
-- Model cache: `/mnt/rectangularfile/qwencache`
+- Model runs with INT8 quantization to fit in 16GB
 
 ### Database Schema
 

@@ -5,6 +5,7 @@ import atexit
 import sys
 from pathlib import Path
 
+from config import config
 from app import create_app
 from db.db_manager import DatabaseManager
 from processing.file_watcher import FileWatcher
@@ -13,13 +14,21 @@ from processing.qwen_processor import QwenVLProcessor
 from processing.ocr_queue_manager import OCRQueueManager
 from processing.html_processor import HTMLProcessor
 
-# Configuration
-UPLOAD_FOLDER = "/mnt/onyx"
-DEFAULT_POLLING_INTERVAL = 30.0
+# Validate and print configuration
+config.print_config()
+validation_errors = config.validate()
+if validation_errors:
+    print("\n⚠️  Configuration warnings:")
+    for error in validation_errors:
+        print(f"  - {error}")
+    print()
 
-# Create application components
-db = DatabaseManager("/mnt/rectangularfile/pdf_index.db")
-file_watcher = FileWatcher(UPLOAD_FOLDER, polling_interval=DEFAULT_POLLING_INTERVAL)
+# Ensure required directories exist
+config.ensure_directories()
+
+# Create application components using centralized config
+db = DatabaseManager(config.DATABASE_PATH)
+file_watcher = FileWatcher(config.UPLOAD_FOLDER, polling_interval=config.FILE_WATCHER_POLLING_INTERVAL)
 pdf_processor = PDFProcessor()
 ocr_processor = QwenVLProcessor()
 ocr_queue = OCRQueueManager(db, ocr_processor)
@@ -28,7 +37,7 @@ html_processor = HTMLProcessor()
 # Define callbacks for file watching
 def process_new_file(relative_path):
     """Process a newly detected file."""
-    filepath = Path(os.path.join(UPLOAD_FOLDER, relative_path))
+    filepath = Path(os.path.join(config.UPLOAD_FOLDER, relative_path))
     print(f"Processing new file: {filepath}")
     
     # Check if this file is already in the database
@@ -80,7 +89,7 @@ def process_new_file(relative_path):
             
 def handle_removed_file(relative_path):
     """Handle a file that's been removed."""
-    filepath = Path(os.path.join(UPLOAD_FOLDER, relative_path))
+    filepath = Path(os.path.join(config.UPLOAD_FOLDER, relative_path))
     print(f"Marking removed file: {filepath}")
     db.mark_document_removed(filepath)
 
@@ -110,11 +119,13 @@ signal.signal(signal.SIGTERM, signal_handler)
 app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue, html_processor)
 
 if __name__ == '__main__':
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
-    
     # Start file watching and OCR queue processing
     file_watcher.start()
     ocr_queue.start_processing()
-    
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+
+    app.run(
+        host=config.FLASK_HOST,
+        port=config.FLASK_PORT,
+        debug=config.FLASK_DEBUG,
+        use_reloader=False
+    )

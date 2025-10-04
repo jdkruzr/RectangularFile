@@ -7,6 +7,7 @@ from pathlib import Path
 import threading
 import os
 import json
+from config import config
 from db.schema_manager import SchemaManager  # Import the new schema manager
 
 class DatabaseManager:
@@ -70,17 +71,13 @@ class DatabaseManager:
                 try:
                     from flask import current_app
                     if current_app:
-                        base_dir = Path(current_app.config.get('UPLOAD_FOLDER', '/mnt/onyx'))
+                        base_dir = Path(current_app.config.get('UPLOAD_FOLDER', config.UPLOAD_FOLDER))
                 except (ImportError, RuntimeError):
                     pass
-                
-                # Method 2: Use environment variable
+
+                # Method 2: Use centralized config
                 if not base_dir:
-                    base_dir = Path(os.environ.get('UPLOAD_FOLDER', '/mnt/onyx'))
-                
-                # Method 3: Default to /mnt/onyx
-                if not base_dir:
-                    base_dir = Path('/mnt/onyx')
+                    base_dir = Path(config.UPLOAD_FOLDER)
                 
                 # Now try to extract folder path
                 if filepath.is_absolute() and filepath.is_relative_to(base_dir):
@@ -91,11 +88,12 @@ class DatabaseManager:
                         folder_path = ""
                 else:
                     # If not under base directory, try to extract meaningful folder structure
-                    # Look for device patterns like Go103/Notebooks/Moffitt
+                    # Look for patterns after the configured base directory
                     path_str = str(filepath)
-                    if '/mnt/onyx/' in path_str:
-                        # Extract everything after /mnt/onyx/
-                        idx = path_str.find('/mnt/onyx/') + 10
+                    base_dir_str = str(base_dir) + '/'
+                    if base_dir_str in path_str:
+                        # Extract everything after base directory
+                        idx = path_str.find(base_dir_str) + len(base_dir_str)
                         remaining = path_str[idx:]
                         parts = remaining.split('/')
                         if len(parts) > 1:

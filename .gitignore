@@ -45,6 +45,13 @@ wheels/
 *.sqlite
 *.sqlite3
 
+# Security keys
+.caldav_key
+
+# Backup files
+*.backup
+*.bak
+
 # Logs
 logs/
 *.log

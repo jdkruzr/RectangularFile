@@ -50,7 +50,59 @@ python -c "import hashlib; print(hashlib.sha256('yourpassword'.encode()).hexdige
 
 Add to your systemd service or environment:
 
-`SECRET_KEY=<generated_key> APP_PASSWORD_HASH=<generated_hash>`
+```bash
+SECRET_KEY=<generated_key>
+APP_PASSWORD_HASH=<generated_hash>
+```
+
+## ⚙️ Configuration
+
+All paths and settings can be configured via environment variables. See [rectangular-file.service](rectangular-file.service) for a complete example.
+
+### Key Configuration Options
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `UPLOAD_FOLDER` | `/mnt/onyx` | Directory where PDFs are synced |
+| `DATABASE_PATH` | `/mnt/rectangularfile/pdf_index.db` | SQLite database location |
+| `MODEL_NAME` | `Qwen/Qwen2.5-VL-7B-Instruct` | HuggingFace model identifier |
+| `MODEL_CACHE_DIR` | `/mnt/rectangularfile/qwencache` | Model cache directory |
+| `DEBUG_IMAGES_DIR` | `/mnt/rectangularfile/debug_images` | Debug image output |
+| `POLLING_INTERVAL` | `30.0` | File watcher polling interval (seconds) |
+| `FLASK_HOST` | `0.0.0.0` | Flask server bind address |
+| `FLASK_PORT` | `5000` | Flask server port |
+
+### Starting from Scratch
+
+To rebuild your database from existing PDFs:
+
+1. **Stop the service:**
+   ```bash
+   sudo systemctl stop rectangular-file
+   ```
+
+2. **Backup your database (optional):**
+   ```bash
+   cp /mnt/rectangularfile/pdf_index.db /mnt/rectangularfile/pdf_index.db.backup
+   ```
+
+3. **Remove the database:**
+   ```bash
+   rm /mnt/rectangularfile/pdf_index.db
+   ```
+
+4. **Important: Remove CalDAV settings** to avoid creating duplicate todos:
+   - Either don't configure CalDAV environment variables, or
+   - Set CalDAV to disabled in settings after first start
+
+5. **Start the service:**
+   ```bash
+   sudo systemctl start rectangular-file
+   ```
+
+6. The system will automatically discover and process all PDFs in `UPLOAD_FOLDER`
+
+7. **After processing completes**, configure CalDAV in the web UI if desired. Only new highlights after this point will create todos.
 
 
 ## 📖 Documentation
