@@ -131,6 +131,18 @@ class SchemaManager:
                     FOREIGN KEY (topic_id) REFERENCES topics(id)
                 )
             """,
+            "document_annotations": """
+                CREATE TABLE IF NOT EXISTS document_annotations (
+                    id INTEGER PRIMARY KEY,
+                    doc_id INTEGER,
+                    page_number INTEGER,
+                    annotation_type TEXT,
+                    text TEXT,
+                    confidence FLOAT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (doc_id) REFERENCES pdf_documents(id)
+                )
+            """,
             "edit_history": """
                 CREATE TABLE IF NOT EXISTS edit_history (
                     id INTEGER PRIMARY KEY,

@@ -118,11 +118,18 @@ signal.signal(signal.SIGTERM, signal_handler)
 # Create the Flask application
 app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue, html_processor)
 
-if __name__ == '__main__':
-    # Start file watching and OCR queue processing
-    file_watcher.start()
-    ocr_queue.start_processing()
+# Start background services immediately (works for both gunicorn and direct execution)
+# These services are thread-based and won't interfere with gunicorn workers
+print("Starting file watcher...")
+file_watcher.start()
+print("File watcher started.")
 
+print("Starting OCR queue processing...")
+ocr_queue.start_processing()
+print("OCR queue processing started.")
+
+if __name__ == '__main__':
+    # This block only runs when executing directly (not under gunicorn)
     app.run(
         host=config.FLASK_HOST,
         port=config.FLASK_PORT,
