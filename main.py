@@ -128,6 +128,39 @@ print("Starting OCR queue processing...")
 ocr_queue.start_processing()
 print("OCR queue processing started.")
 
+# Perform initial scan to queue any unprocessed documents from database
+print("Scanning for unprocessed documents in database...")
+with db.get_connection() as conn:
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, relative_path, processing_status
+        FROM pdf_documents
+        WHERE (processing_status = 'pending' OR processing_status IS NULL OR processing_status = 'failed')
+        AND relative_path NOT LIKE '%.html'
+        AND relative_path NOT LIKE '%.htm'
+        ORDER BY file_modified_at DESC
+    """)
+    unprocessed = cursor.fetchall()
+
+    if unprocessed:
+        print(f"Found {len(unprocessed)} unprocessed documents. Queueing for processing...")
+        for doc in unprocessed:
+            doc_id = doc['id']
+            doc_path = doc['relative_path']
+            filepath = Path(doc_path) if os.path.isabs(doc_path) else Path(config.UPLOAD_FOLDER) / doc_path
+
+            if filepath.exists():
+                print(f"  Queueing document {doc_id}: {filepath.name}")
+                # Process PDF immediately
+                pdf_processor.process_document(filepath, doc_id, db)
+                # Queue for OCR
+                ocr_queue.add_to_queue(doc_id, filepath)
+            else:
+                print(f"  Skipping document {doc_id}: file not found at {filepath}")
+        print(f"Initial scan complete. {len(unprocessed)} documents queued.")
+    else:
+        print("No unprocessed documents found.")
+
 if __name__ == '__main__':
     # This block only runs when executing directly (not under gunicorn)
     app.run(
