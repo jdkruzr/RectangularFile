@@ -121,53 +121,65 @@ app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue, html
 # Start background services immediately (works for both gunicorn and direct execution)
 # These services are thread-based and won't interfere with gunicorn workers
 
-print("Starting OCR queue processing...")
-ocr_queue.start_processing()
-print("OCR queue processing started.")
+def _startup_initialization():
+    """
+    Perform startup initialization in background thread to avoid blocking gunicorn.
+    This includes model loading, file watching, and initial document scanning.
+    """
+    print("Starting OCR queue processing...")
+    ocr_queue.start_processing()
+    print("OCR queue processing started.")
 
-# Pre-load the model before scanning files to avoid race conditions
-print("Pre-loading AI model (this may take 30-60 seconds)...")
-if not ocr_processor._load_model():
-    print("WARNING: Failed to pre-load model, will load on first use")
-else:
-    print("Model loaded successfully!")
-
-print("Starting file watcher...")
-file_watcher.start()
-print("File watcher started.")
-
-# Perform initial scan to queue any unprocessed documents from database
-print("Scanning for unprocessed documents in database...")
-with db.get_connection() as conn:
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, relative_path, processing_status
-        FROM pdf_documents
-        WHERE (processing_status = 'pending' OR processing_status IS NULL OR processing_status = 'failed')
-        AND relative_path NOT LIKE '%.html'
-        AND relative_path NOT LIKE '%.htm'
-        ORDER BY file_modified_at DESC
-    """)
-    unprocessed = cursor.fetchall()
-
-    if unprocessed:
-        print(f"Found {len(unprocessed)} unprocessed documents. Queueing for processing...")
-        for doc in unprocessed:
-            doc_id = doc['id']
-            doc_path = doc['relative_path']
-            filepath = Path(doc_path) if os.path.isabs(doc_path) else Path(config.UPLOAD_FOLDER) / doc_path
-
-            if filepath.exists():
-                print(f"  Queueing document {doc_id}: {filepath.name}")
-                # Process PDF immediately
-                pdf_processor.process_document(filepath, doc_id, db)
-                # Queue for OCR
-                ocr_queue.add_to_queue(doc_id, filepath)
-            else:
-                print(f"  Skipping document {doc_id}: file not found at {filepath}")
-        print(f"Initial scan complete. {len(unprocessed)} documents queued.")
+    # Pre-load the model before scanning files to avoid race conditions
+    print("Pre-loading AI model (this may take 30-60 seconds)...")
+    if not ocr_processor._load_model():
+        print("WARNING: Failed to pre-load model, will load on first use")
     else:
-        print("No unprocessed documents found.")
+        print("Model loaded successfully!")
+
+    print("Starting file watcher...")
+    file_watcher.start()
+    print("File watcher started.")
+
+    # Perform initial scan to queue any unprocessed documents from database
+    print("Scanning for unprocessed documents in database...")
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, relative_path, processing_status
+            FROM pdf_documents
+            WHERE (processing_status = 'pending' OR processing_status IS NULL OR processing_status = 'failed')
+            AND relative_path NOT LIKE '%.html'
+            AND relative_path NOT LIKE '%.htm'
+            ORDER BY file_modified_at DESC
+        """)
+        unprocessed = cursor.fetchall()
+
+        if unprocessed:
+            print(f"Found {len(unprocessed)} unprocessed documents. Queueing for processing...")
+            for doc in unprocessed:
+                doc_id = doc['id']
+                doc_path = doc['relative_path']
+                filepath = Path(doc_path) if os.path.isabs(doc_path) else Path(config.UPLOAD_FOLDER) / doc_path
+
+                if filepath.exists():
+                    print(f"  Queueing document {doc_id}: {filepath.name}")
+                    # Process PDF immediately
+                    pdf_processor.process_document(filepath, doc_id, db)
+                    # Queue for OCR
+                    ocr_queue.add_to_queue(doc_id, filepath)
+                else:
+                    print(f"  Skipping document {doc_id}: file not found at {filepath}")
+            print(f"Initial scan complete. {len(unprocessed)} documents queued.")
+        else:
+            print("No unprocessed documents found.")
+
+# Start initialization in background thread to avoid blocking gunicorn worker
+import threading
+print("Starting background initialization...")
+init_thread = threading.Thread(target=_startup_initialization, daemon=True, name="StartupInit")
+init_thread.start()
+print("Background initialization started. Web server is ready to accept connections.")
 
 if __name__ == '__main__':
     # This block only runs when executing directly (not under gunicorn)
