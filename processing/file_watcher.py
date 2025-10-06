@@ -91,10 +91,18 @@ class FileWatcher:
             
         return True
     
-    def start(self) -> None:
+    def start(self, trigger_initial_scan: bool = True) -> None:
         if self._running:
             return
-        
+
+        # Trigger callbacks for all existing files on first startup
+        if trigger_initial_scan and self.callbacks:
+            print(f"Triggering initial scan for {len(self.files)} existing files...")
+            for rel_path in self.files:
+                for callback in self.callbacks:
+                    callback(rel_path)
+            print(f"Initial scan complete.")
+
         class Handler(FileSystemEventHandler):
             def __init__(self, watcher: 'FileWatcher'):
                 self.watcher = watcher
