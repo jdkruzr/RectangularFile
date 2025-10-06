@@ -27,6 +27,9 @@ Environment=DEBUG_IMAGES_DIR=/mnt/rectangularfile/debug_images
 # Processing Configuration
 Environment=POLLING_INTERVAL=30.0
 
+# System PATH (add poppler-utils)
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 # Flask Server (optional - can be overridden)
 # Environment=FLASK_HOST=0.0.0.0
 # Environment=FLASK_PORT=5000

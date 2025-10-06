@@ -120,13 +120,21 @@ app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue, html
 
 # Start background services immediately (works for both gunicorn and direct execution)
 # These services are thread-based and won't interfere with gunicorn workers
-print("Starting file watcher...")
-file_watcher.start()
-print("File watcher started.")
 
 print("Starting OCR queue processing...")
 ocr_queue.start_processing()
 print("OCR queue processing started.")
+
+# Pre-load the model before scanning files to avoid race conditions
+print("Pre-loading AI model (this may take 30-60 seconds)...")
+if not ocr_processor._load_model():
+    print("WARNING: Failed to pre-load model, will load on first use")
+else:
+    print("Model loaded successfully!")
+
+print("Starting file watcher...")
+file_watcher.start()
+print("File watcher started.")
 
 # Perform initial scan to queue any unprocessed documents from database
 print("Scanning for unprocessed documents in database...")
