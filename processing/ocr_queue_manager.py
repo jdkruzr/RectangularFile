@@ -124,12 +124,13 @@ class OCRQueueManager:
                 
                 # Process the document with OCR
                 try:
-                    # Just call without the detect_annotations parameter for now
+                    self.logger.info(f"Calling OCR processor for document {doc_id}...")
                     success = self.ocr_processor.process_document(
                         filepath, doc_id, self.db_manager
                     )
+                    self.logger.info(f"OCR processor returned: {success}")
                 except Exception as proc_error:
-                    self.logger.error(f"Error processing document: {proc_error}")
+                    self.logger.error(f"Error processing document {doc_id}: {proc_error}")
                     import traceback
                     self.logger.error(f"Traceback: {traceback.format_exc()}")
                     success = False
