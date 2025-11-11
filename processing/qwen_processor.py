@@ -70,15 +70,17 @@ class QwenVLProcessor:
 
     def setup_logging(self):
         """Configure logging for the processor."""
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
-        if not self.logger.handlers:
+        from utils.structured_logger import StructuredLogger
+        base_logger = logging.getLogger(__name__)
+        base_logger.setLevel(logging.INFO)
+        if not base_logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                '%(asctime)s - %(levelname)s - %(message)s'
             )
             handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
+            base_logger.addHandler(handler)
+        self.logger = StructuredLogger(base_logger, "AI-MODEL")
 
     def _ensure_annotations_table(self, db_manager):
         """Ensure the annotations table exists in the database."""
@@ -238,23 +240,21 @@ class QwenVLProcessor:
 
     def process_document(self, pdf_path: Path, doc_id: int, db_manager: DatabaseManager, dpi: int = 150, detect_annotations: bool = True) -> bool:
         # Initialize annotations list at the beginning of the method scope
-        annotations: List[Dict] = [] 
-                
+        annotations: List[Dict] = []
+
         try: # Main try block for the entire method
-            self.logger.info(f"=== Starting Qwen VL processing for document {doc_id} ===")
-            self.logger.info(f"Processing file: {pdf_path}")
-            self.logger.info(f"Annotation detection enabled: {detect_annotations}")
+            self.logger.info(f"═══ Processing started ({pdf_path.name}) ═══", doc_id)
 
             if not self._load_model():
-                self.logger.error("Failed to load model")
+                self.logger.fail_operation("model loading", doc_id)
                 db_manager.update_processing_progress(doc_id, 0.0, "Failed to load model")
                 return False
 
             if not db_manager.mark_ocr_started(doc_id):
-                self.logger.error(f"Failed to mark document {doc_id} for processing")
+                self.logger.error(f"Failed to mark for processing", doc_id)
                 return False
 
-            self.logger.info(f"Converting PDF to images at {dpi} DPI")
+            self.logger.info(f"Converting PDF to images at {dpi}DPI", doc_id)
             with tempfile.TemporaryDirectory() as temp_dir:
                 db_manager.update_processing_progress(doc_id, 10.0, "Converting PDF to images")
                 try:
@@ -264,14 +264,14 @@ class QwenVLProcessor:
                         output_folder=temp_dir,
                         fmt='jpg'
                     )
-                    self.logger.info(f"Converted PDF to {len(images_pil_list)} images")
+                    self.logger.info(f"Converted to {len(images_pil_list)} pages", doc_id)
                 except Exception as pdf_error:
-                    self.logger.error(f"Error converting PDF to images: {pdf_error}")
+                    self.logger.error(f"PDF conversion error: {pdf_error}", doc_id)
                     db_manager.update_processing_progress(doc_id, 0.0, f"Error converting PDF: {str(pdf_error)}")
                     return False
 
                 if not images_pil_list:
-                    self.logger.warning(f"No images extracted from PDF {doc_id}")
+                    self.logger.warning(f"No images extracted from PDF", doc_id)
                     db_manager.update_processing_progress(doc_id, 0.0, "No images from PDF")
                     return False
 
@@ -279,11 +279,11 @@ class QwenVLProcessor:
                 progress_per_page = 60.0 / len(images_pil_list) if images_pil_list else 60.0
                 resized_images_for_processing: List[Image.Image] = []
 
-                self.logger.info("Starting first pass: Text transcription")
+                self.logger.info("─── Pass 1: Text transcription ───", doc_id)
                 for i, image_pil_original in enumerate(images_pil_list):
                     page_num = i + 1
                     current_progress = 20.0 + (i * progress_per_page)
-                    self.logger.info(f"Transcribing page {page_num}/{len(images_pil_list)}")
+                    self.logger.info(f"Transcribing page {page_num}/{len(images_pil_list)}", doc_id)
                     db_manager.update_processing_progress(doc_id, current_progress, f"Transcribing page {page_num}")
 
                     image_for_transcription, image_path_str = self._resize_image_if_needed(image_pil_original, doc_id, page_num)
@@ -301,64 +301,50 @@ class QwenVLProcessor:
                     }
                     if self.device == "cuda": torch.cuda.empty_cache()
 
-                self.logger.info(f"Storing transcription results for {len(page_data)} pages")
+                self.logger.info(f"Storing {len(page_data)} page transcriptions", doc_id)
                 db_manager.update_processing_progress(doc_id, 80.0, "Storing transcriptions")
                 if not db_manager.store_ocr_results(doc_id, page_data):
-                    self.logger.error(f"Failed to store transcriptions for doc {doc_id}")
+                    self.logger.error(f"Failed to store transcriptions", doc_id)
                     db_manager.update_processing_progress(doc_id, 0.0, "Failed to store transcriptions")
                     return False
 
                 if self.device == "cuda":
                     torch.cuda.empty_cache(); torch.cuda.synchronize()
-                    self._log_memory_usage("After first pass cleanup")
                     import gc; gc.collect()
                     torch.cuda.empty_cache(); torch.cuda.synchronize()
-                    self._log_memory_usage("After garbage collection")
 
                 if not detect_annotations:
-                    self.logger.info("Skipping annotation detection.")
                     db_manager.update_processing_progress(doc_id, 100.0, "Processing complete (no annotations)")
                     total_words = sum(p.get('word_count', 0) for p in page_data.values())
-                    self.logger.info(
-                        f"Successfully processed document {doc_id}\n"
-                        f"Total words: {total_words}\n"
-                        f"Pages processed: {len(page_data)}\n"
-                        f"Annotations detection skipped"
-                    )
+                    self.logger.complete_operation("document processing", doc_id, f"{len(page_data)} pages, {total_words} words")
                     return True
 
-                self.logger.info("Starting second pass: Detecting colored annotations")
+                self.logger.info("─── Pass 2: Detecting annotations ───", doc_id)
                 db_manager.update_processing_progress(doc_id, 85.0, "Detecting annotations")
                 self._ensure_annotations_table(db_manager)
 
                 for i, image_for_annotations in enumerate(resized_images_for_processing):
                     page_num = i + 1
-                    self.logger.info(f"Detecting colored annotations on page {page_num}/{len(resized_images_for_processing)}")
+                    self.logger.info(f"Detecting annotations on page {page_num}/{len(resized_images_for_processing)}", doc_id)
                     page_annotations = self._detect_colored_annotations(image_for_annotations, page_num)
                     annotations.extend(page_annotations)
                     if self.device == "cuda": torch.cuda.empty_cache()
-                
+
                 if annotations:
-                    self.logger.info(f"Storing {len(annotations)} annotations")
+                    self.logger.info(f"Storing {len(annotations)} annotations", doc_id)
                     db_manager.store_document_annotations(doc_id, annotations)
-                    
+
                     # Create CalDAV todos from yellow highlights
-                    self.logger.info("Attempting to create CalDAV todos from highlights")
                     self._create_todos_from_highlights(annotations, db_manager, doc_id)
-                
+
                 db_manager.update_processing_progress(doc_id, 100.0, "Processing complete")
                 total_words = sum(p.get('word_count', 0) for p in page_data.values())
-                self.logger.info(
-                    f"Successfully processed document {doc_id}\n"
-                    f"Total words: {total_words}\n"
-                    f"Pages processed: {len(page_data)}\n"
-                    f"Annotations found: {len(annotations)}"
-                )
+                self.logger.complete_operation("document processing", doc_id, f"{len(page_data)} pages, {total_words} words, {len(annotations)} annotations")
                 return True
 
         except Exception as e: # Matching except for the main try block
-            error_message = f"Error processing document {doc_id}: {str(e)}"
-            self.logger.error(error_message)
+            error_message = f"Processing error: {str(e)}"
+            self.logger.error(error_message, doc_id)
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             db_manager.update_processing_progress(doc_id, 0.0, error_message)
