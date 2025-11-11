@@ -17,3 +17,5 @@ beautifulsoup4
 opencv-python
 caldav>=1.3.6
 cryptography>=3.4.8
+pycryptodome>=3.18.0
+pymongo>=4.0.0
