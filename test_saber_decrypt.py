@@ -9,9 +9,9 @@ from processing.saber_decryptor import SaberDecryptor
 
 def main():
     # Test parameters
-    saber_folder = Path("/home/jtd/Downloads/test_saber")
+    saber_folder = Path("/home/sysop/Downloads/test_saber")
     password = "ehh1701jqb"
-    encrypted_file = Path("/home/jtd/Downloads/ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b.sbe")
+    encrypted_file = Path("/home/sysop/Downloads/ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b.sbe")
     encrypted_filename = "ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b"
 
     print("=" * 70)
