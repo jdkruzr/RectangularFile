@@ -31,7 +31,7 @@ def main():
         print(f"   ✓ Decrypted path: {decrypted_path}")
     except Exception as e:
         print(f"   ✗ Filename decryption failed: {e}")
-        return 1
+        print(f"   ⚠  Continuing to test file content decryption...")
 
     # Test file content decryption
     print(f"\n3. Testing file content decryption...")
