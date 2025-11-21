@@ -1,12 +1,18 @@
 """
 Saber Note Decryptor
 
-Handles decryption of Saber notes (.sbn2.enc files) from WebDAV sync.
+Handles decryption of Saber notes (.sbe files) from WebDAV sync.
 
 Encryption scheme (from Saber source):
-1. Key derivation: SHA256(password + "8MnPs64@R&mF8XjWeLrD")
-2. Algorithm: AES-256-CBC
-3. IV stored in config.sbc (base64 encoded)
+1. Password key derivation: SHA256(password + "8MnPs64@R&mF8XjWeLrD")
+2. The password key decrypts the file encryption key stored in config.sbc
+3. The file encryption key is used to decrypt actual .sbe files
+4. Algorithm: AES-256-CBC
+5. IV stored in config.sbc (base64 encoded)
+
+This is a two-layer encryption scheme where:
+- User password → Password-derived key → Decrypts the "key" field in config.sbc
+- File encryption key (from config.sbc) → Encrypts/decrypts actual files
 """
 
 import json
@@ -37,36 +43,38 @@ class SaberDecryptor:
         """
         self.encryption_password = encryption_password
         self.saber_folder = Path(saber_folder)
-        self._key = None
+        self._password_key = None  # Key derived from password
+        self._file_key = None       # Actual key used to encrypt files
         self._iv = None
 
-    def _derive_key(self) -> bytes:
+    def _derive_password_key(self) -> bytes:
         """
-        Derive encryption key from password using Saber's method.
+        Derive the password-based encryption key using Saber's method.
 
+        This key is used to decrypt the file encryption key stored in config.sbc.
         Returns SHA256(password + salt) as 32-byte key.
         """
-        if self._key is None:
+        if self._password_key is None:
             # Combine password with reproducible salt
             password_with_salt = self.encryption_password + self.REPRODUCIBLE_SALT
             # Hash to get 32-byte key for AES-256
-            self._key = hashlib.sha256(password_with_salt.encode('utf-8')).digest()
-            logger.debug("Derived encryption key from password")
-        return self._key
+            self._password_key = hashlib.sha256(password_with_salt.encode('utf-8')).digest()
+            logger.debug("Derived password-based encryption key")
+        return self._password_key
 
-    def _load_iv_from_config(self) -> bytes:
+    def _load_file_key_from_config(self) -> Tuple[bytes, bytes]:
         """
-        Load IV from config.sbc file.
+        Load and decrypt the file encryption key from config.sbc.
 
         Returns:
-            IV as bytes (16 bytes for AES)
+            Tuple of (file_key, iv) as bytes
 
         Raises:
             FileNotFoundError: If config.sbc not found
-            ValueError: If config.sbc is invalid
+            ValueError: If config.sbc is invalid or decryption fails
         """
-        if self._iv is not None:
-            return self._iv
+        if self._file_key is not None and self._iv is not None:
+            return self._file_key, self._iv
 
         config_path = self.saber_folder / "Saber" / "config.sbc"
 
@@ -80,24 +88,34 @@ class SaberDecryptor:
             with open(config_path, 'r') as f:
                 config = json.load(f)
 
-            if 'iv' not in config:
-                raise ValueError("config.sbc does not contain 'iv' field")
+            if 'iv' not in config or 'key' not in config:
+                raise ValueError("config.sbc missing 'iv' or 'key' field")
 
             # Decode base64 IV
             self._iv = base64.b64decode(config['iv'])
-            logger.debug(f"Loaded IV from {config_path}")
 
-            return self._iv
+            # Decrypt the file encryption key using password-derived key
+            password_key = self._derive_password_key()
+            encrypted_file_key = base64.b64decode(config['key'])
+
+            cipher = AES.new(password_key, AES.MODE_CBC, self._iv)
+            decrypted_padded = cipher.decrypt(encrypted_file_key)
+            self._file_key = unpad(decrypted_padded, AES.block_size)
+
+            logger.debug(f"Loaded and decrypted file key from {config_path}")
+            return self._file_key, self._iv
 
         except json.JSONDecodeError as e:
             raise ValueError(f"config.sbc is not valid JSON: {e}")
+        except Exception as e:
+            raise ValueError(f"Failed to decrypt file key from config.sbc: {e}")
 
     def decrypt_file(self, encrypted_path: Path) -> bytes:
         """
         Decrypt a Saber encrypted file.
 
         Args:
-            encrypted_path: Path to .sbn2.enc or .sbn.enc file
+            encrypted_path: Path to .sbe file
 
         Returns:
             Decrypted file contents as bytes
@@ -116,13 +134,12 @@ class SaberDecryptor:
         if not encrypted_data:
             raise ValueError(f"Encrypted file is empty: {encrypted_path}")
 
-        # Get key and IV
-        key = self._derive_key()
-        iv = self._load_iv_from_config()
+        # Get the file encryption key and IV from config
+        file_key, iv = self._load_file_key_from_config()
 
         try:
-            # Create AES cipher in CBC mode
-            cipher = AES.new(key, AES.MODE_CBC, iv)
+            # Create AES cipher in CBC mode using the file key
+            cipher = AES.new(file_key, AES.MODE_CBC, iv)
 
             # Decrypt
             decrypted_padded = cipher.decrypt(encrypted_data)
@@ -151,15 +168,14 @@ class SaberDecryptor:
         Raises:
             ValueError: If decryption fails
         """
-        key = self._derive_key()
-        iv = self._load_iv_from_config()
+        file_key, iv = self._load_file_key_from_config()
 
         try:
             # Convert hex string to bytes
             encrypted_bytes = bytes.fromhex(encrypted_filename)
 
-            # Create AES cipher
-            cipher = AES.new(key, AES.MODE_CBC, iv)
+            # Create AES cipher using the file key
+            cipher = AES.new(file_key, AES.MODE_CBC, iv)
 
             # Decrypt
             decrypted_padded = cipher.decrypt(encrypted_bytes)
