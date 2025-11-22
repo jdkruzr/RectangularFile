@@ -60,7 +60,28 @@ try:
         print(f"   ✓ Length: {len(decrypted)} bytes")
     except ValueError as e:
         print(f"   ✗ Unpadding failed: {e}")
-        print(f"   Last 16 bytes (padding): {decrypted_padded[-16:].hex()}")
+        print(f"   Last byte (should be padding): 0x{decrypted_padded[-1]:02x} (decimal {decrypted_padded[-1]})")
+
+        # Maybe it's not padded? Or maybe it's base64-encoded?
+        print(f"\n5. Trying alternative interpretations...")
+
+        # Try as base64 string
+        try:
+            as_string = decrypted_padded.decode('utf-8').rstrip('\x00')
+            print(f"   As UTF-8 string: {as_string}")
+            try:
+                decoded_base64 = base64.b64decode(as_string)
+                print(f"   ✓ Decoded from base64 (hex): {decoded_base64.hex()}")
+                print(f"   ✓ Decoded length: {len(decoded_base64)} bytes")
+            except Exception as e2:
+                print(f"   ✗ Not valid base64: {e2}")
+        except Exception as e2:
+            print(f"   ✗ Not valid UTF-8: {e2}")
+
+        # Try treating decrypted data directly as the key (no padding)
+        print(f"\n   Treating decrypted data as raw key (no unpadding):")
+        print(f"   Raw key (hex): {decrypted_padded.hex()}")
+        print(f"   Raw key length: {len(decrypted_padded)} bytes")
 
 except Exception as e:
     print(f"   ✗ Decryption failed: {e}")
