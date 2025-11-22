@@ -27,11 +27,16 @@ def main():
     print(f"\n1. File size: {len(bson_data):,} bytes")
     print(f"   First 32 bytes (hex): {bson_data[:32].hex()}")
 
-    # Try to decode as BSON
+    # Get the BSON document length from first 4 bytes
+    import struct
+    doc_length = struct.unpack('<i', bson_data[0:4])[0]
+    print(f"   BSON document length: {doc_length:,} bytes")
+
+    # Try to decode as BSON (only the first document)
     print(f"\n2. Attempting to decode BSON...")
     try:
-        # BSON decode expects a single document
-        decoded = bson.decode(bson_data)
+        # BSON decode expects a single document - use only the documented length
+        decoded = bson.decode(bson_data[:doc_length])
         print(f"   ✓ Successfully decoded BSON document")
 
         # Show top-level keys
