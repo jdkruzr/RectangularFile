@@ -97,6 +97,12 @@ class Config:
             ("Flask Debug", cls.FLASK_DEBUG),
             ("Secret Key Set", "Yes" if cls.SECRET_KEY != 'your-default-secret-key-change-this' else "No (using default)"),
             ("Password Hash Set", "Yes" if cls.APP_PASSWORD_HASH else "No"),
+            ("", ""),  # Separator
+            ("Boox Enabled", cls.BOOX_ENABLED),
+            ("Boox Folder", cls.BOOX_FOLDER),
+            ("Saber Enabled", cls.SABER_ENABLED),
+            ("Saber Folder", cls.SABER_FOLDER),
+            ("Saber Password Set", "Yes" if cls.SABER_PASSWORD else "No"),
         ]
 
         print("\n" + "="*60)
