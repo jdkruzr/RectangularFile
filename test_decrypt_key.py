@@ -83,6 +83,42 @@ try:
         print(f"   Raw key (hex): {decrypted_padded.hex()}")
         print(f"   Raw key length: {len(decrypted_padded)} bytes")
 
+        # Maybe we just use first 32 bytes?
+        print(f"\n   First 32 bytes as key:")
+        print(f"   Key (hex): {decrypted_padded[:32].hex()}")
+
+        # Or maybe the Dart library uses a different padding scheme?
+        # Let's check if there are null bytes at the end
+        stripped = decrypted_padded.rstrip(b'\x00')
+        print(f"\n   After stripping null bytes:")
+        print(f"   Key (hex): {stripped.hex()}")
+        print(f"   Length: {len(stripped)} bytes")
+
+        # Check last few bytes to understand the pattern
+        print(f"\n   Last 16 bytes breakdown:")
+        for i in range(16):
+            byte_val = decrypted_padded[-(16-i)]
+            print(f"     Byte {32+i}: 0x{byte_val:02x} ({byte_val}) {chr(byte_val) if 32 <= byte_val < 127 else '?'}")
+
+        # Try manually removing last 4 bytes (if it's PKCS7 with padding=4)
+        print(f"\n   Try removing last 4 bytes (manual PKCS7 check):")
+        manual_unpad = decrypted_padded[:-4]
+        print(f"   Key (hex): {manual_unpad.hex()}")
+        print(f"   Length: {len(manual_unpad)} bytes")
+        try:
+            as_str = manual_unpad.decode('utf-8')
+            print(f"   As string: '{as_str}'")
+            # Try to decode as base64
+            try:
+                final_key = base64.b64decode(as_str)
+                print(f"   ✓✓✓ DECODED AS BASE64!")
+                print(f"   Final key (hex): {final_key.hex()}")
+                print(f"   Final key length: {len(final_key)} bytes")
+            except:
+                print(f"   Not base64")
+        except:
+            print(f"   Not UTF-8")
+
 except Exception as e:
     print(f"   ✗ Decryption failed: {e}")
     import traceback
