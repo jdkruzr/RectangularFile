@@ -98,6 +98,14 @@ class OCRQueueManager:
                 filepath = item['filepath']
                 self.currently_processing = item
 
+                # Check if document has been skipped before processing
+                doc_info = self.db_manager.get_document_by_id(doc_id)
+                if doc_info and doc_info.get('processing_status') == 'skipped':
+                    self.logger.info(f"Document {doc_id} is skipped, removing from queue", doc_id)
+                    self.queue.task_done()
+                    self.currently_processing = None
+                    continue
+
                 self.logger.start_operation("OCR processing", doc_id, filepath.name)
                 self.db_manager.update_processing_progress(
                     doc_id, 5.0, "Queued for OCR processing"
