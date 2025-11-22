@@ -103,10 +103,14 @@ def process_document_from_source(processed_doc):
 
         existing = cursor.fetchone()
 
-    # Skip if already completed
-    if existing and existing['processing_status'] == 'completed':
-        print(f"Document already processed: {processed_doc.title}")
-        return
+    # Skip if already completed or explicitly skipped
+    if existing:
+        if existing['processing_status'] == 'completed':
+            print(f"Document already processed: {processed_doc.title}")
+            return
+        elif existing['processing_status'] == 'skipped':
+            print(f"Document is skipped, not processing: {processed_doc.title}")
+            return
 
     # Add or reset document in database
     if existing:
@@ -267,6 +271,7 @@ def _startup_initialization():
             SELECT id, relative_path, processing_status
             FROM pdf_documents
             WHERE (processing_status = 'pending' OR processing_status IS NULL OR processing_status = 'failed')
+            AND processing_status != 'skipped'
             AND relative_path NOT LIKE '%.html'
             AND relative_path NOT LIKE '%.htm'
             ORDER BY file_modified_at DESC

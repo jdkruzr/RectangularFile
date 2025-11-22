@@ -289,6 +289,41 @@ class DatabaseManager:
             self.logger.error(f"Error marking document as removed {filepath}: {e}")
             return False
 
+    def mark_document_skipped(self, doc_id: int, reason: str = "User excluded") -> bool:
+        """
+        Mark a document as skipped with a reason (e.g., too large, user excluded).
+
+        Args:
+            doc_id: Document ID to skip
+            reason: Reason for skipping
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE pdf_documents
+                    SET processing_status = 'skipped',
+                        processing_error = ?,
+                        last_indexed_at = ?
+                    WHERE id = ?
+                    RETURNING id, filename
+                """, (reason, datetime.now(), doc_id))
+
+                result = cursor.fetchone()
+                if result:
+                    self.logger.info(f"Marked document {doc_id} ({result['filename']}) as skipped: {reason}")
+                    return True
+                else:
+                    self.logger.warning(f"Document not found to skip: {doc_id}")
+                    return False
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error marking document {doc_id} as skipped: {e}")
+            return False
+
     def update_processing_progress(self, doc_id: int, progress: float, status_message: Optional[str] = None) -> bool:
         try:
             with self.get_connection() as conn:
