@@ -56,11 +56,17 @@ class SaberNoteSource(DocumentSource):
         if not self.watch_directory.exists():
             raise ValueError(f"Saber folder does not exist: {self.watch_directory}")
 
-        # Check for config.sbc
-        config_path = self.watch_directory / "Saber" / "config.sbc"
-        if not config_path.exists():
+        # Check for config.sbc in multiple possible locations
+        possible_config_paths = [
+            self.watch_directory / "Saber" / "config.sbc",
+            self.watch_directory / "config.sbc",
+            self.watch_directory / "saber" / "config.sbc",
+        ]
+
+        config_found = any(path.exists() for path in possible_config_paths)
+        if not config_found:
             raise ValueError(
-                f"Saber config.sbc not found at {config_path}. "
+                f"Saber config.sbc not found. Tried: {', '.join(str(p) for p in possible_config_paths)}. "
                 "Ensure Saber has synced at least once before enabling."
             )
 
@@ -72,12 +78,29 @@ class SaberNoteSource(DocumentSource):
         return ['.sbe']
 
     def can_process_file(self, file_path: Path) -> bool:
-        """Check if file is a Saber encrypted note."""
-        return (
-            file_path.suffix.lower() == '.sbe' and
-            file_path.exists() and
-            'Saber' in file_path.parts  # Ensure it's in a Saber folder
-        )
+        """Check if file is a Saber encrypted note (not a preview file)."""
+        if not (file_path.suffix.lower() == '.sbe' and file_path.exists()):
+            return False
+
+        # Skip 0-byte files (deletions)
+        if file_path.stat().st_size == 0:
+            logger.debug(f"Skipping 0-byte file: {file_path.name}")
+            return False
+
+        # Skip preview files (.sbn2.p.sbe) - only process main files (.sbn2.sbe)
+        try:
+            encrypted_filename = file_path.stem
+            decrypted_path = self.decryptor.decrypt_filename(encrypted_filename)
+
+            # Skip if it's a preview file (ends with .p)
+            if decrypted_path.endswith('.p'):
+                logger.debug(f"Skipping preview file: {decrypted_path}")
+                return False
+
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to decrypt filename {file_path.name}: {e}")
+            return False
 
     def process_file(self, file_path: Path) -> Optional[ProcessedDocument]:
         """
