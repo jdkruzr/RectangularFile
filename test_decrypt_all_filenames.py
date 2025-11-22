@@ -8,7 +8,7 @@ from pathlib import Path
 from processing.saber_decryptor import SaberDecryptor
 
 def main():
-    saber_folder = Path("/mnt/webdav/saber")
+    saber_folder = Path("/mnt/saber")
     password = "ehh1701jqb"  # Replace with actual password from env
 
     print("=" * 70)
@@ -19,7 +19,7 @@ def main():
     decryptor = SaberDecryptor(password, saber_folder)
 
     # Get all .sbe files
-    saber_files_dir = saber_folder / "Saber"
+    saber_files_dir = saber_folder
     sbe_files = sorted(saber_files_dir.glob("*.sbe"))
 
     if not sbe_files:
