@@ -73,11 +73,22 @@ class SaberDecryptor:
         if self._iv is not None:
             return self._iv
 
-        config_path = self.saber_folder / "Saber" / "config.sbc"
+        # Try multiple possible locations for config.sbc
+        possible_paths = [
+            self.saber_folder / "Saber" / "config.sbc",  # Original: parent/Saber/config.sbc
+            self.saber_folder / "config.sbc",              # Direct mount: /mnt/saber/config.sbc
+            self.saber_folder / "saber" / "config.sbc",    # Lowercase variant
+        ]
 
-        if not config_path.exists():
+        config_path = None
+        for path in possible_paths:
+            if path.exists():
+                config_path = path
+                break
+
+        if not config_path:
             raise FileNotFoundError(
-                f"config.sbc not found at {config_path}. "
+                f"config.sbc not found. Tried: {', '.join(str(p) for p in possible_paths)}. "
                 "Make sure Saber has synced at least once."
             )
 
