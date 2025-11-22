@@ -156,22 +156,26 @@ def process_new_file(relative_path):
     # Check if this file is already in the database
     with db.get_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Try to find by relative path or filename
         filename = filepath.name
         cursor.execute("""
-            SELECT id, processing_status FROM pdf_documents 
+            SELECT id, processing_status FROM pdf_documents
             WHERE relative_path = ? OR filename = ?
         """, (str(filepath.absolute()), filename))
-        
+
         existing = cursor.fetchone()
-    
-    # If already in database and completed, skip processing
-    if existing and existing['processing_status'] == 'completed':
-        print(f"File already processed: {filepath}")
-        return
-    
-    # If in database but not completed, reset and process
+
+    # If already in database and completed or skipped, skip processing
+    if existing:
+        if existing['processing_status'] == 'completed':
+            print(f"File already processed: {filepath}")
+            return
+        elif existing['processing_status'] == 'skipped':
+            print(f"File is skipped, not processing: {filepath}")
+            return
+
+    # If in database but not completed or skipped, reset and process
     if existing:
         doc_id = existing['id']
         print(f"Resetting existing document: {doc_id}")
