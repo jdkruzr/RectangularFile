@@ -5,14 +5,12 @@ Handles decryption of Saber notes (.sbe files) from WebDAV sync.
 
 Encryption scheme (from Saber source):
 1. Password key derivation: SHA256(password + "8MnPs64@R&mF8XjWeLrD")
-2. The password key decrypts the file encryption key stored in config.sbc
-3. The file encryption key is used to decrypt actual .sbe files
-4. Algorithm: AES-256-CBC
-5. IV stored in config.sbc (base64 encoded)
+2. Files are encrypted directly with the password-derived key (not a separate file key)
+3. Algorithm: AES-256-CTR (counter mode - no padding needed)
+4. IV stored in config.sbc is used as the initial counter value
 
-This is a two-layer encryption scheme where:
-- User password → Password-derived key → Decrypts the "key" field in config.sbc
-- File encryption key (from config.sbc) → Encrypts/decrypts actual files
+Note: The "key" field in config.sbc appears to be for future use or verification,
+but actual file encryption uses the password-derived key directly.
 """
 
 import json
@@ -22,7 +20,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
+from Crypto.Util import Counter
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +42,7 @@ class SaberDecryptor:
         self.encryption_password = encryption_password
         self.saber_folder = Path(saber_folder)
         self._password_key = None  # Key derived from password
-        self._file_key = None       # Actual key used to encrypt files
-        self._iv = None
+        self._iv = None            # IV from config.sbc
 
     def _derive_password_key(self) -> bytes:
         """
@@ -62,19 +59,19 @@ class SaberDecryptor:
             logger.debug("Derived password-based encryption key")
         return self._password_key
 
-    def _load_file_key_from_config(self) -> Tuple[bytes, bytes]:
+    def _load_iv_from_config(self) -> bytes:
         """
-        Load and decrypt the file encryption key from config.sbc.
+        Load IV from config.sbc file.
 
         Returns:
-            Tuple of (file_key, iv) as bytes
+            IV as bytes (16 bytes for AES)
 
         Raises:
             FileNotFoundError: If config.sbc not found
-            ValueError: If config.sbc is invalid or decryption fails
+            ValueError: If config.sbc is invalid
         """
-        if self._file_key is not None and self._iv is not None:
-            return self._file_key, self._iv
+        if self._iv is not None:
+            return self._iv
 
         config_path = self.saber_folder / "Saber" / "config.sbc"
 
@@ -88,27 +85,17 @@ class SaberDecryptor:
             with open(config_path, 'r') as f:
                 config = json.load(f)
 
-            if 'iv' not in config or 'key' not in config:
-                raise ValueError("config.sbc missing 'iv' or 'key' field")
+            if 'iv' not in config:
+                raise ValueError("config.sbc does not contain 'iv' field")
 
             # Decode base64 IV
             self._iv = base64.b64decode(config['iv'])
+            logger.debug(f"Loaded IV from {config_path}")
 
-            # Decrypt the file encryption key using password-derived key
-            password_key = self._derive_password_key()
-            encrypted_file_key = base64.b64decode(config['key'])
-
-            cipher = AES.new(password_key, AES.MODE_CBC, self._iv)
-            decrypted_padded = cipher.decrypt(encrypted_file_key)
-            self._file_key = unpad(decrypted_padded, AES.block_size)
-
-            logger.debug(f"Loaded and decrypted file key from {config_path}")
-            return self._file_key, self._iv
+            return self._iv
 
         except json.JSONDecodeError as e:
             raise ValueError(f"config.sbc is not valid JSON: {e}")
-        except Exception as e:
-            raise ValueError(f"Failed to decrypt file key from config.sbc: {e}")
 
     def decrypt_file(self, encrypted_path: Path) -> bytes:
         """
@@ -134,18 +121,19 @@ class SaberDecryptor:
         if not encrypted_data:
             raise ValueError(f"Encrypted file is empty: {encrypted_path}")
 
-        # Get the file encryption key and IV from config
-        file_key, iv = self._load_file_key_from_config()
+        # Get password-derived key and IV
+        key = self._derive_password_key()
+        iv = self._load_iv_from_config()
 
         try:
-            # Create AES cipher in CBC mode using the file key
-            cipher = AES.new(file_key, AES.MODE_CBC, iv)
+            # Create AES cipher in CTR mode using the IV as counter
+            # CTR mode is a stream cipher, so no padding is needed
+            counter_val = int.from_bytes(iv, byteorder='big')
+            ctr = Counter.new(128, initial_value=counter_val)
+            cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
 
-            # Decrypt
-            decrypted_padded = cipher.decrypt(encrypted_data)
-
-            # Remove PKCS7 padding
-            decrypted = unpad(decrypted_padded, AES.block_size)
+            # Decrypt (no unpadding needed for CTR mode)
+            decrypted = cipher.decrypt(encrypted_data)
 
             logger.info(f"Successfully decrypted {encrypted_path.name} ({len(decrypted)} bytes)")
             return decrypted
@@ -168,20 +156,20 @@ class SaberDecryptor:
         Raises:
             ValueError: If decryption fails
         """
-        file_key, iv = self._load_file_key_from_config()
+        key = self._derive_password_key()
+        iv = self._load_iv_from_config()
 
         try:
             # Convert hex string to bytes
             encrypted_bytes = bytes.fromhex(encrypted_filename)
 
-            # Create AES cipher using the file key
-            cipher = AES.new(file_key, AES.MODE_CBC, iv)
+            # Create AES cipher in CTR mode
+            counter_val = int.from_bytes(iv, byteorder='big')
+            ctr = Counter.new(128, initial_value=counter_val)
+            cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
 
-            # Decrypt
-            decrypted_padded = cipher.decrypt(encrypted_bytes)
-
-            # Remove padding
-            decrypted_bytes = unpad(decrypted_padded, AES.block_size)
+            # Decrypt (no unpadding needed for CTR mode)
+            decrypted_bytes = cipher.decrypt(encrypted_bytes)
 
             # Decode to string
             decrypted_path = decrypted_bytes.decode('utf-8')
