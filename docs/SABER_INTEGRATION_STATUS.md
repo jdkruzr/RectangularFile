@@ -1,7 +1,7 @@
 # Saber Integration Status
 
-**Last Updated:** 2025-11-12
-**Status:** Phase 1 - Decryption Implementation Complete, Testing in Progress
+**Last Updated:** 2025-11-21
+**Status:** Phase 2 - BSON Parsing & Rendering Complete, Testing Renderer
 
 ---
 
@@ -22,15 +22,22 @@ Saber Device (Galaxy S23 / Wacom)
     ↓ writes encrypted .sbe files
 WebDAV Server (watched folder)
     ↓ RF FileWatcher detects .sbe files + config.sbc
-SaberDecryptor (NEW - IMPLEMENTED)
+SaberDecryptor (✅ COMPLETE)
     - Reads config.sbc for IV
-    - Derives key from user password
+    - Derives key from user password (AES-256-CTR)
     - Decrypts .sbe files → raw BSON
+    - Decrypts filenames (hex-encoded)
     ↓
-SaberProcessor (TODO - NEXT STEP)
+SaberProcessor (✅ COMPLETE)
     - Parses BSON note structure
-    - Extracts pages, strokes, images
-    - Renders each page to raster image
+    - Extracts pages, strokes, metadata
+    - Decodes stroke points (x, y, pressure)
+    ↓
+SaberRenderer (✅ IMPLEMENTED, ⏳ TESTING)
+    - Renders vector strokes to raster images
+    - Applies pressure sensitivity to line width
+    - Draws background patterns (lined, grid)
+    - Outputs JPG for OCR pipeline
     ↓
 QwenVLProcessor (existing OCR)
     - Performs handwriting recognition
@@ -48,11 +55,13 @@ DatabaseManager (existing)
 - Unencrypted files: `.sbn2` (BSON) or `.sbn` (JSON)
 - Metadata file: `config.sbc` (unencrypted JSON)
 
-### Encryption Scheme
+### Encryption Scheme ✅ VALIDATED
 1. **Key Derivation:** `SHA256(password + "8MnPs64@R&mF8XjWeLrD")`
-2. **Algorithm:** AES-256-CBC
-3. **IV:** Stored in `config.sbc` as base64
-4. **Filenames:** Also encrypted (hex-encoded)
+2. **Algorithm:** AES-256-CTR (Counter mode - no padding!)
+3. **IV:** Stored in `config.sbc` as base64, used as initial counter value
+4. **Filenames:** Encrypted with same key, hex-encoded
+
+**Key Discovery:** Files use **CTR mode**, not CBC! This explains why CBC attempts failed with padding errors.
 
 ### config.sbc Structure
 ```json
@@ -62,27 +71,37 @@ DatabaseManager (existing)
 }
 ```
 
-Note: The `"key"` field is the file encryption key encrypted with the password-derived key. Files are encrypted directly with the password-derived key using the IV from config.
+**Note:** The `"key"` field appears to be for future use or multi-device sync. Files are encrypted **directly** with the password-derived key, not this stored key.
 
 ---
 
 ## Files Created/Modified
 
 ### New Files
-1. **[processing/saber_decryptor.py](../processing/saber_decryptor.py)**
+1. **[processing/saber_decryptor.py](../processing/saber_decryptor.py)** ✅ COMPLETE
    - `SaberDecryptor` class
-   - Implements password → key derivation
-   - Decrypts .sbe files and filenames
-   - Status: ✅ IMPLEMENTED, ⏳ TESTING
+   - AES-256-CTR decryption with password-derived key
+   - Decrypts both .sbe files and hex-encoded filenames
+   - Successfully tested with real Saber notes
 
-2. **[test_saber_decrypt.py](../test_saber_decrypt.py)**
-   - Test script for decryption
-   - Tests both filename and file content decryption
-   - Status: ✅ CREATED, ⏳ READY TO RUN
+2. **[processing/saber_processor.py](../processing/saber_processor.py)** ✅ COMPLETE
+   - `SaberNote`, `SaberPage`, `SaberStroke` classes
+   - Parses BSON structure (handles trailing bytes correctly)
+   - Decodes binary point data (x, y, pressure as floats)
+   - Extracts all metadata (version, background pattern, etc.)
 
-3. **Test Data**
-   - `/home/jtd/Downloads/test_saber/Saber/config.sbc` - Config file for testing
-   - `/home/jtd/Downloads/ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b.sbe` - Test note
+3. **[processing/saber_renderer.py](../processing/saber_renderer.py)** ✅ IMPLEMENTED
+   - `SaberRenderer` class
+   - Renders strokes with pressure-sensitive line width
+   - Draws lined/grid backgrounds
+   - Outputs high-quality JPG for OCR
+
+4. **Test Scripts** ✅ ALL PASSING
+   - `test_saber_decrypt.py` - Decryption validation
+   - `test_saber_parse_bson.py` - BSON structure exploration
+   - `test_decode_stroke_points.py` - Point coordinate validation
+   - `test_bson_structure.py` - Format investigation
+   - `test_decrypt_ctr.py` - CTR mode discovery
 
 ### Modified Files
 1. **[requirements.txt](../requirements.txt)**
@@ -110,40 +129,42 @@ python3 test_saber_decrypt.py
 
 ---
 
-## Current Status: BLOCKED
+## Current Status: Phase 2 Complete! 🎉
 
-### Blocking Issue
-Waiting for `pycryptodome` to be installed on the system.
+### Completed Today (2025-11-21)
+1. ✅ **Fixed Encryption** - Discovered files use CTR mode, not CBC
+2. ✅ **Successful Decryption** - Both filenames and file contents decrypt perfectly
+3. ✅ **BSON Parsing** - Complete note structure extracted
+4. ✅ **Point Decoding** - All stroke coordinates decoded (x, y, pressure)
+5. ✅ **Renderer Implementation** - Stroke rendering with pressure sensitivity
 
-### Once Unblocked
-1. Run `test_saber_decrypt.py` to verify decryption works
-2. If successful, proceed to Phase 2 (BSON parsing)
-3. If fails, debug encryption implementation
+### Test Results
+- **Test file:** `25-11-11 Test.sbn2` (2 pages, 48 strokes, lined paper)
+- **Decryption:** ✅ Success (147,744 bytes)
+- **BSON parsing:** ✅ Success (version 19 format)
+- **Stroke points:** ✅ All decoded (61 points in first stroke)
+- **Renderer:** ⏳ Ready to test
 
 ---
 
-## Phase 2: Next Steps (After Decryption Test Passes)
+## Phase 3: Next Steps (Integration & Testing)
 
-### 1. Create SaberProcessor
-- Parse BSON structure using `pymongo`/`bson` library
-- Extract note metadata (version, pages, background)
-- Handle both `.sbn2` (BSON) and `.sbn` (JSON) formats
+### 1. Test Stroke Rendering
+```bash
+python3 processing/saber_renderer.py <decrypted_file> <output_dir>
+```
+- Verify rendered images look correct
+- Check pressure sensitivity rendering
+- Validate lined background appearance
 
-### 2. Implement Stroke Rendering
-- File: `processing/saber_renderer.py`
-- Render vector strokes to raster images
-- Use Pillow or cairo for drawing
-- Input: Page dimensions, stroke points (x, y, pressure)
-- Output: JPG/PNG for OCR pipeline
-
-### 3. FileWatcher Integration
+### 2. FileWatcher Integration
 - Add `.sbe` file detection to `file_watcher.py`
 - Implement file versioning logic:
   - Saber saves frequently (possibly one file per change)
   - Need to identify canonical version using filename + timestamps
   - Handle updates when files change
 
-### 4. Configuration
+### 3. Configuration
 Add to [config.py](../config.py):
 ```python
 # Saber integration settings
@@ -152,31 +173,42 @@ SABER_ENC_PASSWORD = os.getenv('SABER_ENC_PASSWORD', '')
 SABER_ENABLED = os.getenv('SABER_ENABLED', 'false').lower() == 'true'
 ```
 
-### 5. Database Schema Updates
+### 4. Database Schema Updates
 Track source type in `pdf_documents` table:
 - Add `source_type` column: 'boox_pdf', 'saber_note', 'html'
 - Store original encrypted filename
 - Store decrypted path/title
+- Store Saber metadata (background pattern, tool types used, etc.)
 
 ---
 
 ## Key Decisions Made
 
-### Decryption Approach
-- Files encrypted directly with password-derived key (not the key in config.sbc)
-- Must decrypt filenames to track note identity/versions
-- Config.sbc provides the IV needed for decryption
+### Decryption Approach ✅ VALIDATED
+- **AES-256-CTR mode** (not CBC!) - critical discovery via testing
+- Files encrypted directly with password-derived key
+- The "key" field in config.sbc is unused for file decryption
+- Filenames decrypted the same way, stored as hex strings
+- Config.sbc provides the IV (used as initial counter value)
+
+### BSON Parsing Strategy ✅ IMPLEMENTED
+- Files have 8 trailing bytes after main BSON document
+- Use document length from first 4 bytes to parse correctly
+- Stroke points stored as binary: 12 bytes = 3 floats (x, y, pressure)
+- All metadata successfully extracted and validated
+
+### Rendering Strategy ✅ IMPLEMENTED
+- Convert vector strokes to raster images using Pillow
+- Apply pressure sensitivity to line width for realistic appearance
+- Draw background patterns (lined/grid) beneath strokes
+- Output as JPEG for compatibility with existing OCR pipeline
+- No changes needed to QwenVL OCR code
 
 ### Versioning Strategy (To Be Implemented)
 - Decrypt filename to get original path
 - Use filename + modification time to detect updates
 - Treat as single document with version history
 - Re-run OCR when file changes
-
-### Rendering Strategy (To Be Implemented)
-- Convert vector strokes to raster images
-- Feed to existing Qwen OCR pipeline
-- No changes needed to OCR code
 
 ---
 
@@ -242,11 +274,12 @@ When resuming this work on another machine:
 
 ## Open Questions
 
-1. ✅ **How are files encrypted?** - Solved: AES-CBC with password-derived key
-2. ✅ **Do we need config.sbc?** - Yes, for the IV
-3. ⏳ **How to handle rapid updates?** - Need to implement versioning logic
-4. ⏳ **What metadata is in files?** - Need to parse BSON to confirm
-5. ⏳ **How to render strokes?** - Will use Pillow/cairo (TBD in Phase 2)
+1. ✅ **How are files encrypted?** - Solved: AES-CTR with password-derived key
+2. ✅ **Do we need config.sbc?** - Yes, for the IV (used as counter)
+3. ✅ **What metadata is in files?** - Complete: version, pages, strokes, background pattern, etc.
+4. ✅ **How to render strokes?** - Pillow with pressure-sensitive line width
+5. ⏳ **How to handle rapid updates?** - Need to implement versioning logic
+6. ⏳ **Does rendering quality work for OCR?** - Need to test with QwenVL
 
 ---
 
@@ -254,11 +287,13 @@ When resuming this work on another machine:
 
 - [x] Research Saber file format
 - [x] Understand encryption scheme
-- [x] Create SaberDecryptor class
-- [x] Create test script
-- [ ] **CURRENT:** Run decryption test (blocked on pycryptodome)
-- [ ] Create SaberProcessor for BSON parsing
-- [ ] Implement stroke rendering
+- [x] Create SaberDecryptor class (AES-CTR)
+- [x] Create test scripts
+- [x] Run decryption tests - ALL PASSING
+- [x] Create SaberProcessor for BSON parsing
+- [x] Implement stroke rendering (SaberRenderer)
+- [ ] **CURRENT:** Test renderer output quality
 - [ ] Integrate with FileWatcher
 - [ ] Add configuration options
+- [ ] Connect to QwenVL OCR pipeline
 - [ ] Test with live WebDAV sync
