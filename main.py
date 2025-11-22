@@ -13,6 +13,9 @@ from processing.pdf_processor import PDFProcessor
 from processing.qwen_processor import QwenVLProcessor
 from processing.ocr_queue_manager import OCRQueueManager
 from processing.html_processor import HTMLProcessor
+from processing.document_source_manager import DocumentSourceManager
+from processing.boox_pdf_source import BooxPDFSource
+from processing.saber_note_source import SaberNoteSource
 
 # Validate and print configuration
 config.print_config()
@@ -28,13 +31,119 @@ config.ensure_directories()
 
 # Create application components using centralized config
 db = DatabaseManager(config.DATABASE_PATH)
-file_watcher = FileWatcher(config.UPLOAD_FOLDER, polling_interval=config.FILE_WATCHER_POLLING_INTERVAL)
 pdf_processor = PDFProcessor()
 ocr_processor = QwenVLProcessor()
 ocr_queue = OCRQueueManager(db, ocr_processor)
 html_processor = HTMLProcessor()
 
-# Define callbacks for file watching
+# Initialize document source manager
+doc_source_manager = DocumentSourceManager(polling_interval=config.FILE_WATCHER_POLLING_INTERVAL)
+
+# Register Boox PDF source if enabled
+if config.BOOX_ENABLED:
+    print(f"Initializing Boox PDF source: {config.BOOX_FOLDER}")
+    boox_source = BooxPDFSource(
+        watch_directory=Path(config.BOOX_FOLDER),
+        enabled=True
+    )
+    doc_source_manager.register_source(boox_source)
+else:
+    print("Boox PDF source is disabled")
+
+# Register Saber note source if enabled
+if config.SABER_ENABLED:
+    if not config.SABER_PASSWORD:
+        print("⚠️  WARNING: Saber is enabled but SABER_PASSWORD is not set. Disabling Saber source.")
+    else:
+        print(f"Initializing Saber note source: {config.SABER_FOLDER}")
+        try:
+            saber_source = SaberNoteSource(
+                watch_directory=Path(config.SABER_FOLDER),
+                encryption_password=config.SABER_PASSWORD,
+                enabled=True
+            )
+            doc_source_manager.register_source(saber_source)
+        except Exception as e:
+            print(f"⚠️  WARNING: Failed to initialize Saber source: {e}")
+            print("   Saber support will be disabled")
+else:
+    print("Saber note source is disabled")
+
+# Keep legacy file_watcher for backward compatibility (used by app/__init__.py)
+# This will be removed once app is updated to use doc_source_manager
+file_watcher = FileWatcher(config.UPLOAD_FOLDER, polling_interval=config.FILE_WATCHER_POLLING_INTERVAL)
+
+# Define callback for processed documents from document source manager
+def process_document_from_source(processed_doc):
+    """
+    Handle a processed document from any document source.
+
+    Args:
+        processed_doc: ProcessedDocument object from a document source
+    """
+    print(f"Processing document from {processed_doc.source_type}: {processed_doc.title}")
+
+    # Check if already in database
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+
+        # For Saber notes, use encrypted filename as unique identifier
+        # For PDFs, use the file path
+        if processed_doc.source_type == 'saber_note':
+            identifier = processed_doc.encrypted_filename
+            cursor.execute("""
+                SELECT id, processing_status FROM pdf_documents
+                WHERE filename = ? OR relative_path LIKE ?
+            """, (identifier, f"%{identifier}%"))
+        else:
+            cursor.execute("""
+                SELECT id, processing_status FROM pdf_documents
+                WHERE relative_path = ? OR filename = ?
+            """, (processed_doc.original_path, Path(processed_doc.original_path).name))
+
+        existing = cursor.fetchone()
+
+    # Skip if already completed
+    if existing and existing['processing_status'] == 'completed':
+        print(f"Document already processed: {processed_doc.title}")
+        return
+
+    # Add or reset document in database
+    if existing:
+        doc_id = existing['id']
+        print(f"Resetting existing document: {doc_id}")
+        db.reset_document_status_by_id(doc_id)
+    else:
+        # Add to database
+        # For Saber notes, we need to add with rendered page paths
+        # For PDFs, use the original file
+        primary_path = Path(processed_doc.original_path)
+        doc_id = db.add_document(primary_path)
+
+        if not doc_id:
+            print(f"Failed to add document to database: {processed_doc.title}")
+            return
+
+    # Process based on source type
+    if processed_doc.source_type == 'saber_note':
+        # For Saber notes, queue each rendered page image for OCR
+        print(f"Queueing {len(processed_doc.page_images)} Saber pages for OCR")
+        for page_image in processed_doc.page_images:
+            ocr_queue.add_to_queue(doc_id, page_image)
+
+    elif processed_doc.source_type == 'boox_pdf':
+        # For PDFs, use existing PDF processor
+        filepath = Path(processed_doc.original_path)
+        pdf_processor.process_document(filepath, doc_id, db)
+        ocr_queue.add_to_queue(doc_id, filepath)
+
+    else:
+        print(f"Unknown source type: {processed_doc.source_type}")
+
+# Set the callback on the document source manager
+doc_source_manager.set_process_callback(process_document_from_source)
+
+# Define callbacks for file watching (legacy - for backward compatibility)
 def process_new_file(relative_path):
     """Process a newly detected file."""
     filepath = Path(os.path.join(config.UPLOAD_FOLDER, relative_path))
@@ -100,7 +209,8 @@ def cleanup():
     """Clean up resources before shutdown."""
     print("Shutting down application...")
     ocr_queue.stop_processing()
-    file_watcher.stop()
+    doc_source_manager.stop_all()
+    file_watcher.stop()  # Legacy watcher
     db.close()
     print("Application shutdown complete.")
 
@@ -116,7 +226,12 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 # Create the Flask application
+# Note: Still passing legacy file_watcher for backward compatibility
+# TODO: Update create_app signature to accept doc_source_manager
 app = create_app(db, file_watcher, pdf_processor, ocr_processor, ocr_queue, html_processor)
+
+# Store doc_source_manager on app for access in routes if needed
+app.doc_source_manager = doc_source_manager
 
 # Start background services immediately (works for both gunicorn and direct execution)
 # These services are thread-based and won't interfere with gunicorn workers
@@ -137,9 +252,12 @@ def _startup_initialization():
     else:
         print("[STARTUP] ✓ Model loaded successfully")
 
-    print("[STARTUP] ▶ Starting file watcher...")
+    print("[STARTUP] ▶ Starting document source watchers...")
+    # Start the new modular document source manager
+    doc_source_manager.start_all(trigger_initial_scan=True)
+    # Also start legacy file watcher for backward compatibility
     file_watcher.start()
-    print("[STARTUP] ✓ File watcher ready")
+    print("[STARTUP] ✓ File watchers ready")
 
     # Perform initial scan to queue any unprocessed documents from database
     print("[STARTUP] ▶ Scanning for unprocessed documents in database...")
