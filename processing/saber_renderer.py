@@ -9,8 +9,15 @@ from pathlib import Path
 from typing import Optional, Tuple
 from PIL import Image, ImageDraw
 import math
+import sys
 
-from processing.saber_processor import SaberNote, SaberPage, SaberStroke
+# Handle imports when running as script vs as module
+try:
+    from processing.saber_processor import SaberNote, SaberPage, SaberStroke
+except ImportError:
+    # Running as script, add parent to path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from processing.saber_processor import SaberNote, SaberPage, SaberStroke
 
 logger = logging.getLogger(__name__)
 
@@ -210,20 +217,12 @@ def test_renderer(decrypted_file: str, output_dir: str):
         decrypted_file: Path to decrypted file
         output_dir: Directory to save rendered images
     """
-    # Import here to avoid issues when running as script
-    import sys
-    from pathlib import Path as P
-
-    # Add parent directory to path for imports
-    script_dir = P(__file__).parent.parent
-    if str(script_dir) not in sys.path:
-        sys.path.insert(0, str(script_dir))
-
     from processing.saber_processor import SaberProcessor
 
     # Parse the note
     note = SaberProcessor.parse_note_from_file(Path(decrypted_file))
     print(f"✓ Parsed note: {len(note.pages)} pages")
+    print(f"  Metadata: {note.get_metadata()}")
 
     # Render all pages
     renderer = SaberRenderer()
