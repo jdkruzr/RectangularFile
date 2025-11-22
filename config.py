@@ -31,6 +31,16 @@ class Config:
     # Processing Configuration
     FILE_WATCHER_POLLING_INTERVAL = float(os.environ.get('POLLING_INTERVAL', '30.0'))
 
+    # Document Source Configuration
+    # Boox/PDF Support
+    BOOX_ENABLED = os.environ.get('BOOX_ENABLED', 'true').lower() == 'true'
+    BOOX_FOLDER = os.environ.get('BOOX_FOLDER', UPLOAD_FOLDER)  # Defaults to main upload folder
+
+    # Saber Note Support
+    SABER_ENABLED = os.environ.get('SABER_ENABLED', 'false').lower() == 'true'
+    SABER_FOLDER = os.environ.get('SABER_FOLDER', '/mnt/webdav/saber')
+    SABER_PASSWORD = os.environ.get('SABER_PASSWORD', '')
+
     # Flask Server Configuration
     FLASK_HOST = os.environ.get('FLASK_HOST', '0.0.0.0')
     FLASK_PORT = int(os.environ.get('FLASK_PORT', '5000'))
