@@ -124,6 +124,17 @@ class SaberNoteSource(DocumentSource):
             # Decrypt the filename to get original note name
             encrypted_filename = file_path.stem  # Remove .sbe extension
             decrypted_path = self.decryptor.decrypt_filename(encrypted_filename)
+
+            # Double-check: skip preview files
+            if decrypted_path.endswith('.p'):
+                logger.info(f"Skipping preview file during processing: {decrypted_path}")
+                return None
+
+            # Skip 0-byte files
+            if file_path.stat().st_size == 0:
+                logger.info(f"Skipping 0-byte file: {file_path}")
+                return None
+
             title = Path(decrypted_path).stem  # Remove .sbn2 extension
 
             logger.info(f"Processing Saber note: {encrypted_filename} -> {decrypted_path}")
