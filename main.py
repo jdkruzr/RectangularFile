@@ -66,6 +66,8 @@ if config.SABER_ENABLED:
         except Exception as e:
             print(f"⚠️  WARNING: Failed to initialize Saber source: {e}")
             print("   Saber support will be disabled")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
 else:
     print("Saber note source is disabled")
 
