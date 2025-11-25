@@ -265,8 +265,8 @@ def _startup_initialization():
     print("[STARTUP] ▶ Starting document source watchers...")
     # Start the new modular document source manager
     doc_source_manager.start_all(trigger_initial_scan=True)
-    # Also start legacy file watcher for backward compatibility
-    file_watcher.start()
+    # Also start legacy file watcher for backward compatibility (without initial scan to avoid duplicates)
+    file_watcher.start(trigger_initial_scan=False)
     print("[STARTUP] ✓ File watchers ready")
 
     # Perform initial scan to queue any unprocessed documents from database
