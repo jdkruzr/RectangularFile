@@ -254,26 +254,42 @@ class QwenVLProcessor:
                 self.logger.error(f"Failed to mark for processing", doc_id)
                 return False
 
-            self.logger.info(f"Converting PDF to images at {dpi}DPI", doc_id)
-            with tempfile.TemporaryDirectory() as temp_dir:
-                db_manager.update_processing_progress(doc_id, 10.0, "Converting PDF to images")
+            # Check if file is already an image (for Saber notes)
+            file_extension = pdf_path.suffix.lower()
+            if file_extension in ['.jpg', '.jpeg', '.png', '.webp']:
+                self.logger.info(f"Processing image file directly (no PDF conversion needed)", doc_id)
+                db_manager.update_processing_progress(doc_id, 10.0, "Loading image")
                 try:
-                    images_pil_list = convert_from_path(
-                        pdf_path,
-                        dpi=dpi,
-                        output_folder=temp_dir,
-                        fmt='jpg'
-                    )
-                    self.logger.info(f"Converted to {len(images_pil_list)} pages", doc_id)
-                except Exception as pdf_error:
-                    self.logger.error(f"PDF conversion error: {pdf_error}", doc_id)
-                    db_manager.update_processing_progress(doc_id, 0.0, f"Error converting PDF: {str(pdf_error)}")
+                    images_pil_list = [Image.open(pdf_path)]
+                    self.logger.info(f"Loaded image: {pdf_path.name}", doc_id)
+                except Exception as img_error:
+                    self.logger.error(f"Image loading error: {img_error}", doc_id)
+                    db_manager.update_processing_progress(doc_id, 0.0, f"Error loading image: {str(img_error)}")
                     return False
+            else:
+                # PDF processing
+                self.logger.info(f"Converting PDF to images at {dpi}DPI", doc_id)
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    db_manager.update_processing_progress(doc_id, 10.0, "Converting PDF to images")
+                    try:
+                        images_pil_list = convert_from_path(
+                            pdf_path,
+                            dpi=dpi,
+                            output_folder=temp_dir,
+                            fmt='jpg'
+                        )
+                        self.logger.info(f"Converted to {len(images_pil_list)} pages", doc_id)
+                    except Exception as pdf_error:
+                        self.logger.error(f"PDF conversion error: {pdf_error}", doc_id)
+                        db_manager.update_processing_progress(doc_id, 0.0, f"Error converting PDF: {str(pdf_error)}")
+                        return False
 
-                if not images_pil_list:
-                    self.logger.warning(f"No images extracted from PDF", doc_id)
-                    db_manager.update_processing_progress(doc_id, 0.0, "No images from PDF")
-                    return False
+            if not images_pil_list:
+                self.logger.warning(f"No images to process", doc_id)
+                db_manager.update_processing_progress(doc_id, 0.0, "No images to process")
+                return False
+
+            with tempfile.TemporaryDirectory() as temp_dir:
 
                 page_data = {}
                 progress_per_page = 60.0 / len(images_pil_list) if images_pil_list else 60.0
