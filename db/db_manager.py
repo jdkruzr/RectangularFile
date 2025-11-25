@@ -351,9 +351,10 @@ class DatabaseManager:
                 file_path = doc['relative_path']
 
                 # Delete related data first (foreign keys should cascade, but being explicit)
+                # Note: pdf_text_content uses 'pdf_id', others use 'doc_id'
                 cursor.execute("DELETE FROM pdf_text_content WHERE pdf_id = ?", (doc_id,))
-                cursor.execute("DELETE FROM document_annotations WHERE pdf_id = ?", (doc_id,))
-                cursor.execute("DELETE FROM edit_history WHERE pdf_id = ?", (doc_id,))
+                cursor.execute("DELETE FROM document_annotations WHERE doc_id = ?", (doc_id,))
+                cursor.execute("DELETE FROM edit_history WHERE doc_id = ?", (doc_id,))
 
                 # Delete the document itself
                 cursor.execute("DELETE FROM pdf_documents WHERE id = ?", (doc_id,))
