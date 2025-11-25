@@ -324,6 +324,63 @@ class DatabaseManager:
             self.logger.error(f"Error marking document {doc_id} as skipped: {e}")
             return False
 
+    def delete_document(self, doc_id: int, delete_file: bool = False) -> bool:
+        """
+        Completely delete a document and all associated data.
+
+        Args:
+            doc_id: Document ID to delete
+            delete_file: If True, also delete the actual file from disk
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get document info before deleting
+                cursor.execute("SELECT filename, relative_path FROM pdf_documents WHERE id = ?", (doc_id,))
+                doc = cursor.fetchone()
+
+                if not doc:
+                    self.logger.warning(f"Document not found to delete: {doc_id}")
+                    return False
+
+                filename = doc['filename']
+                file_path = doc['relative_path']
+
+                # Delete related data first (foreign keys should cascade, but being explicit)
+                cursor.execute("DELETE FROM pdf_text_content WHERE pdf_id = ?", (doc_id,))
+                cursor.execute("DELETE FROM document_annotations WHERE pdf_id = ?", (doc_id,))
+                cursor.execute("DELETE FROM edit_history WHERE pdf_id = ?", (doc_id,))
+
+                # Delete the document itself
+                cursor.execute("DELETE FROM pdf_documents WHERE id = ?", (doc_id,))
+
+                conn.commit()
+                self.logger.info(f"Deleted document {doc_id} ({filename}) from database")
+
+                # Optionally delete the actual file
+                if delete_file and file_path:
+                    try:
+                        file_to_delete = Path(file_path)
+                        if file_to_delete.exists():
+                            file_to_delete.unlink()
+                            self.logger.info(f"Deleted file from disk: {file_path}")
+                        else:
+                            self.logger.warning(f"File not found on disk: {file_path}")
+                    except Exception as e:
+                        self.logger.error(f"Error deleting file from disk: {e}")
+                        # Don't fail the whole operation if file deletion fails
+                        pass
+
+                return True
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error deleting document {doc_id}: {e}")
+            return False
+
     def update_processing_progress(self, doc_id: int, progress: float, status_message: Optional[str] = None) -> bool:
         try:
             with self.get_connection() as conn:
