@@ -121,9 +121,13 @@ def process_document_from_source(processed_doc):
         db.reset_document_status_by_id(doc_id)
     else:
         # Add to database
-        # For Saber notes, we need to add with rendered page paths
+        # For Saber notes, use the first rendered page image as the "file" for database purposes
         # For PDFs, use the original file
-        primary_path = Path(processed_doc.original_path)
+        if processed_doc.source_type == 'saber_note' and processed_doc.page_images:
+            primary_path = processed_doc.page_images[0]  # Use first rendered image
+        else:
+            primary_path = Path(processed_doc.original_path)
+
         doc_id = db.add_document(primary_path)
 
         if not doc_id:
