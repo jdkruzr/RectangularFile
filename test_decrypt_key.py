@@ -11,7 +11,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
 # Test parameters
-password = "ehh1701jqb"
+password = os.environ.get("SABER_PASSWORD", "")  # Get from environment
 REPRODUCIBLE_SALT = "8MnPs64@R&mF8XjWeLrD"
 
 # Load config from actual file

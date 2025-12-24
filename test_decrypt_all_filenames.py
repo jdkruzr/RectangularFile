@@ -4,12 +4,18 @@ Test script to decrypt all Saber filenames in a directory
 """
 
 import sys
+import os
 from pathlib import Path
 from processing.saber_decryptor import SaberDecryptor
 
 def main():
     saber_folder = Path("/mnt/saber")
-    password = "ehh1701jqb"  # Replace with actual password from env
+    password = os.environ.get('SABER_PASSWORD', '')
+
+    if not password:
+        print("Error: SABER_PASSWORD environment variable not set")
+        print("Usage: SABER_PASSWORD='your_password' python3 test_decrypt_all_filenames.py")
+        return 1
 
     print("=" * 70)
     print("Decrypting all Saber filenames")

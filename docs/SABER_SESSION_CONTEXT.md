@@ -91,7 +91,7 @@ SABER_PASSWORD=''  # Set this to enable Saber
 ```
 
 ### Test Credentials
-- **Password:** `ehh1701jqb`
+- **Password:** `YOUR_PASSWORD_HERE`
 - **Test file:** `/home/sysop/Downloads/ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b.sbe`
 - **Config:** `/home/sysop/Downloads/test_saber/Saber/config.sbc`
 - **Decrypted name:** `/25-11-11 Test.sbn2`
@@ -139,7 +139,7 @@ Saber note source is disabled
 ### Enable Saber for Testing
 ```bash
 export SABER_ENABLED='true'
-export SABER_PASSWORD='ehh1701jqb'
+export SABER_PASSWORD='YOUR_PASSWORD_HERE'
 export SABER_FOLDER='/home/sysop/Downloads/test_saber'
 python main.py
 ```

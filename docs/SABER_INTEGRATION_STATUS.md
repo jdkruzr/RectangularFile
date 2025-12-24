@@ -147,7 +147,7 @@ DatabaseManager (existing)
 - **Encrypted filename:** `ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b.sbe`
 - **Original filename:** `25-11-11 Test.sbn2`
 - **Original path:** `/25-11-11 Test.sbn2`
-- **Saber encryption password:** `ehh1701jqb`
+- **Saber encryption password:** `YOUR_PASSWORD_HERE`
 
 ### Test Setup
 ```bash

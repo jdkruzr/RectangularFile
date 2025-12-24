@@ -10,7 +10,7 @@ from processing.saber_decryptor import SaberDecryptor
 def main():
     # Test parameters
     saber_folder = Path("/home/sysop/Downloads/test_saber")
-    password = "ehh1701jqb"
+    password = os.environ.get("SABER_PASSWORD", "")  # Get from environment
     encrypted_file = Path("/home/sysop/Downloads/ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b.sbe")
     encrypted_filename = "ba11646cfae1992948a4ae7d88078d56c18058bfc1736dd5a003c60ae8c7286b"
 
