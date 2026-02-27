@@ -355,6 +355,83 @@ def register_routes(app):
         except Exception as e:
             return jsonify(success=False, message=f"Connection test failed: {str(e)}"), 400
     
+    @app.route('/settings/inference', methods=['GET', 'POST'])
+    @login_required
+    def inference_settings():
+        """Get or update Inference API settings."""
+        if request.method == 'POST':
+            try:
+                api_base = request.form.get('api_base', '').strip()
+                api_key = request.form.get('api_key', '').strip()
+                model = request.form.get('model', '').strip()
+
+                # Save settings
+                app.db.set_setting('inference', 'api_base', api_base)
+                app.db.set_setting('inference', 'model', model)
+
+                # Encrypt and save API key if provided
+                if api_key:
+                    app.db.set_setting('inference', 'api_key', api_key, encrypt=True)
+
+                # Update the ocr_processor with new settings
+                if hasattr(app, 'ocr_processor'):
+                    if api_base:
+                        app.ocr_processor.api_base = api_base.rstrip('/')
+                    if api_key:
+                        app.ocr_processor.api_key = api_key
+                    if model:
+                        app.ocr_processor.model = model
+
+                return jsonify(success=True, message="Inference settings saved successfully")
+
+            except Exception as e:
+                return jsonify(success=False, message=f"Error saving inference settings: {str(e)}"), 400
+        else:
+            # GET request - return current settings (without API key)
+            try:
+                api_base = app.db.get_setting('inference', 'api_base') or ''
+                model = app.db.get_setting('inference', 'model') or ''
+
+                # Check health if we have settings
+                healthy = None
+                if api_base and hasattr(app, 'ocr_processor'):
+                    health = app.ocr_processor.health_check()
+                    healthy = health.get('healthy', False)
+
+                return jsonify(
+                    success=True,
+                    api_base=api_base,
+                    model=model,
+                    healthy=healthy
+                )
+            except Exception as e:
+                return jsonify(success=False, message=f"Error loading inference settings: {str(e)}"), 400
+
+    @app.route('/settings/inference/test', methods=['POST'])
+    @login_required
+    def test_inference_connection():
+        """Test Inference API connection."""
+        try:
+            api_base = request.form.get('api_base', '').strip()
+            api_key = request.form.get('api_key', '').strip()
+
+            if not api_base:
+                return jsonify(healthy=False, error="API base URL is required")
+
+            from processing.vision_api_client import VisionAPIClient
+            client = VisionAPIClient(
+                api_base=api_base,
+                api_key=api_key,
+                timeout=10  # Short timeout for health check
+            )
+            result = client.health_check()
+            client.close()
+
+            return jsonify(**result)
+
+        except Exception as e:
+            return jsonify(healthy=False, error=str(e))
+
     @app.route('/todos')
     @login_required
     def todos_page():

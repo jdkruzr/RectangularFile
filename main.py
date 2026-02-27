@@ -10,12 +10,13 @@ from app import create_app
 from db.db_manager import DatabaseManager
 from processing.file_watcher import FileWatcher
 from processing.pdf_processor import PDFProcessor
-from processing.qwen_processor import QwenVLProcessor
+from processing.vision_api_client import VisionAPIClient
 from processing.ocr_queue_manager import OCRQueueManager
 from processing.html_processor import HTMLProcessor
 from processing.document_source_manager import DocumentSourceManager
 from processing.boox_pdf_source import BooxPDFSource
 from processing.saber_note_source import SaberNoteSource
+from processing.archiver import DocumentArchiver
 
 # Validate and print configuration
 config.print_config()
@@ -32,9 +33,26 @@ config.ensure_directories()
 # Create application components using centralized config
 db = DatabaseManager(config.DATABASE_PATH)
 pdf_processor = PDFProcessor()
-ocr_processor = QwenVLProcessor()
-ocr_queue = OCRQueueManager(db, ocr_processor)
 html_processor = HTMLProcessor()
+
+# Initialize Vision API client (OpenAI-compatible endpoint)
+ocr_processor = VisionAPIClient(
+    api_base=config.INFERENCE_API_BASE,
+    api_key=config.INFERENCE_API_KEY,
+    model=config.INFERENCE_MODEL,
+    max_tokens=config.INFERENCE_MAX_TOKENS,
+    timeout=config.INFERENCE_TIMEOUT,
+)
+
+# Initialize document archiver
+archiver = DocumentArchiver(
+    archive_root=Path(config.ARCHIVE_FOLDER),
+    preserve_structure=config.ARCHIVE_PRESERVE_STRUCTURE,
+    enabled=config.ARCHIVE_ENABLED
+)
+
+# Initialize OCR queue with archiver
+ocr_queue = OCRQueueManager(db, ocr_processor, archiver=archiver)
 
 # Initialize document source manager
 doc_source_manager = DocumentSourceManager(polling_interval=config.FILE_WATCHER_POLLING_INTERVAL)
@@ -137,15 +155,16 @@ def process_document_from_source(processed_doc):
     # Process based on source type
     if processed_doc.source_type == 'saber_note':
         # For Saber notes, queue each rendered page image for OCR
+        # Note: Saber rendered images are temporary, don't archive them
         print(f"Queueing {len(processed_doc.page_images)} Saber pages for OCR")
         for page_image in processed_doc.page_images:
-            ocr_queue.add_to_queue(doc_id, page_image)
+            ocr_queue.add_to_queue(doc_id, page_image, base_watch_dir=Path(config.SABER_FOLDER))
 
     elif processed_doc.source_type == 'boox_pdf':
         # For PDFs, use existing PDF processor
         filepath = Path(processed_doc.original_path)
         pdf_processor.process_document(filepath, doc_id, db)
-        ocr_queue.add_to_queue(doc_id, filepath)
+        ocr_queue.add_to_queue(doc_id, filepath, base_watch_dir=Path(config.BOOX_FOLDER))
 
     else:
         print(f"Unknown source type: {processed_doc.source_type}")
@@ -195,7 +214,7 @@ def process_new_file(relative_path):
     
     # Choose processor based on file extension
     file_extension = filepath.suffix.lower()
-    
+
     # Process based on file type
     if file_extension in ['.html', '.htm']:
         print(f"Processing HTML file: {filepath}")
@@ -206,9 +225,9 @@ def process_new_file(relative_path):
         # Default PDF processing
         print(f"Processing PDF file: {filepath}")
         pdf_processor.process_document(filepath, doc_id, db)
-        
+
         # Only queue PDFs for OCR
-        ocr_queue.add_to_queue(doc_id, filepath)
+        ocr_queue.add_to_queue(doc_id, filepath, base_watch_dir=Path(config.UPLOAD_FOLDER))
             
 def handle_removed_file(relative_path):
     """Handle a file that's been removed."""
@@ -253,18 +272,24 @@ app.doc_source_manager = doc_source_manager
 def _startup_initialization():
     """
     Perform startup initialization in background thread to avoid blocking gunicorn.
-    This includes model loading, file watching, and initial document scanning.
+    This includes API health check, file watching, and initial document scanning.
     """
     print("[STARTUP] ▶ Starting OCR queue processing...")
     ocr_queue.start_processing()
     print("[STARTUP] ✓ OCR queue ready")
 
-    # Pre-load the model before scanning files to avoid race conditions
-    print("[STARTUP] ▶ Pre-loading AI model (this may take 30-60 seconds)...")
-    if not ocr_processor._load_model():
-        print("[STARTUP] ⚠ WARNING: Failed to pre-load model, will load on first use")
+    # Check inference API health
+    print(f"[STARTUP] ▶ Checking inference API at {config.INFERENCE_API_BASE}...")
+    health = ocr_processor.health_check()
+    if health.get('healthy'):
+        models = health.get('models', [])
+        print(f"[STARTUP] ✓ Inference API is healthy")
+        if models:
+            print(f"[STARTUP]   Available models: {', '.join(models[:5])}")
     else:
-        print("[STARTUP] ✓ Model loaded successfully")
+        error = health.get('error', 'Unknown error')
+        print(f"[STARTUP] ⚠ WARNING: Inference API not reachable: {error}")
+        print(f"[STARTUP]   OCR processing will fail until the API is available")
 
     print("[STARTUP] ▶ Starting document source watchers...")
     # Start the new modular document source manager
@@ -299,8 +324,8 @@ def _startup_initialization():
                     print(f"[STARTUP]   Queueing doc {doc_id}: {filepath.name}")
                     # Process PDF immediately
                     pdf_processor.process_document(filepath, doc_id, db)
-                    # Queue for OCR
-                    ocr_queue.add_to_queue(doc_id, filepath)
+                    # Queue for OCR (use UPLOAD_FOLDER as base for legacy documents)
+                    ocr_queue.add_to_queue(doc_id, filepath, base_watch_dir=Path(config.UPLOAD_FOLDER))
                 else:
                     print(f"[STARTUP]   Skipping doc {doc_id}: file not found")
             print(f"[STARTUP] ✓ Initial scan complete, {len(unprocessed)} documents queued")

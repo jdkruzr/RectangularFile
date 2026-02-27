@@ -1,21 +1,26 @@
+# Core dependencies
 pdfminer.six>=20221105
 flask>=2.0.0
 flask-login
 watchdog>=2.1.0
 pdf2image>=1.16.0
 Pillow>=9.0.0
-torch
-transformers
-bitsandbytes
-accelerate
-torchvision
-qwen_vl_utils
+
+# HTTP client for API calls
+httpx>=0.24.0
+
+# Utilities
 wordcloud
 matplotlib
 nltk
 beautifulsoup4
-opencv-python
+
+# CalDAV integration
 caldav>=1.3.6
+
+# Encryption (for Saber notes and settings)
 cryptography>=3.4.8
 pycryptodome>=3.18.0
+
+# BSON parsing (for Saber notes)
 pymongo>=4.0.0

@@ -7,16 +7,24 @@ from pathlib import Path
 from utils.structured_logger import StructuredLogger
 
 class OCRQueueManager:
-    """Manages a queue of documents for OCR processing to avoid overloading the GPU."""
+    """Manages a queue of documents for OCR processing."""
 
-    def __init__(self, db_manager, ocr_processor):
-        """Initialize the OCR queue manager."""
+    def __init__(self, db_manager, ocr_processor, archiver=None):
+        """
+        Initialize the OCR queue manager.
+
+        Args:
+            db_manager: Database manager instance
+            ocr_processor: OCR processor (VisionAPIClient or similar)
+            archiver: Optional DocumentArchiver for post-processing archival
+        """
         self.queue = queue.Queue()
         self.processing_thread = None
         self.stop_requested = False
         self.currently_processing = None
         self.db_manager = db_manager
         self.ocr_processor = ocr_processor
+        self.archiver = archiver
         base_logger = self._setup_logging()
         self.logger = StructuredLogger(base_logger, "OCR-QUEUE")
         self.is_running = False
@@ -34,8 +42,15 @@ class OCRQueueManager:
             logger.addHandler(handler)
         return logger
     
-    def add_to_queue(self, doc_id: int, filepath: Path) -> bool:
-        """Add a document to the processing queue."""
+    def add_to_queue(self, doc_id: int, filepath: Path, base_watch_dir: Path = None) -> bool:
+        """
+        Add a document to the processing queue.
+
+        Args:
+            doc_id: Document ID in the database
+            filepath: Path to the document file
+            base_watch_dir: Base directory the file came from (for archiving)
+        """
         if not filepath.exists():
             self.logger.error(f"File not found: {filepath}", doc_id)
             return False
@@ -44,6 +59,7 @@ class OCRQueueManager:
         self.queue.put({
             'doc_id': doc_id,
             'filepath': filepath,
+            'base_watch_dir': base_watch_dir or filepath.parent,
             'queued_at': time.time()
         })
 
@@ -145,10 +161,22 @@ class OCRQueueManager:
 
                 if success:
                     self.logger.complete_operation("OCR processing", doc_id)
+
+                    # Archive the document if archiver is configured
+                    if self.archiver and self.archiver.enabled:
+                        try:
+                            base_watch_dir = item.get('base_watch_dir', filepath.parent)
+                            archived_path = self.archiver.archive_document(filepath, base_watch_dir)
+                            if archived_path:
+                                self.db_manager.update_archived_path(doc_id, str(archived_path))
+                                self.logger.info(f"Archived to: {archived_path}", doc_id)
+                        except Exception as archive_error:
+                            # Log but don't fail the whole operation
+                            self.logger.error(f"Archive failed: {archive_error}", doc_id)
                 else:
                     self.logger.fail_operation("OCR processing", doc_id)
 
-                # Final cleanup after processing
+                # Final cleanup after processing (if using local GPU inference)
                 if hasattr(self.ocr_processor, 'device') and self.ocr_processor.device == 'cuda':
                     import torch
                     import gc

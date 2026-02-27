@@ -21,9 +21,6 @@ class Config:
     # Database Configuration
     DATABASE_PATH = os.environ.get('DATABASE_PATH', '/mnt/rectangularfile/pdf_index.db')
 
-    # Model Configuration
-    MODEL_NAME = os.environ.get('MODEL_NAME', 'Qwen/Qwen2.5-VL-7B-Instruct')
-    MODEL_CACHE_DIR = os.environ.get('MODEL_CACHE_DIR', '/mnt/rectangularfile/qwencache')
 
     # Debug and Logging
     DEBUG_IMAGES_DIR = os.environ.get('DEBUG_IMAGES_DIR', '/mnt/rectangularfile/debug_images')
@@ -40,6 +37,18 @@ class Config:
     SABER_ENABLED = os.environ.get('SABER_ENABLED', 'false').lower() == 'true'
     SABER_FOLDER = os.environ.get('SABER_FOLDER', '/mnt/webdav/saber')
     SABER_PASSWORD = os.environ.get('SABER_PASSWORD', '')
+
+    # Archive Configuration
+    ARCHIVE_ENABLED = os.environ.get('ARCHIVE_ENABLED', 'true').lower() == 'true'
+    ARCHIVE_FOLDER = os.environ.get('ARCHIVE_FOLDER', '/mnt/rectangularfile/archive')
+    ARCHIVE_PRESERVE_STRUCTURE = os.environ.get('ARCHIVE_PRESERVE_STRUCTURE', 'true').lower() == 'true'
+
+    # Inference API Configuration (OpenAI-compatible endpoint)
+    INFERENCE_API_BASE = os.environ.get('INFERENCE_API_BASE', 'http://localhost:8000/v1')
+    INFERENCE_API_KEY = os.environ.get('INFERENCE_API_KEY', '')
+    INFERENCE_MODEL = os.environ.get('INFERENCE_MODEL', 'Qwen/Qwen2.5-VL-7B-Instruct')
+    INFERENCE_MAX_TOKENS = int(os.environ.get('INFERENCE_MAX_TOKENS', '2048'))
+    INFERENCE_TIMEOUT = int(os.environ.get('INFERENCE_TIMEOUT', '120'))
 
     # Flask Server Configuration
     FLASK_HOST = os.environ.get('FLASK_HOST', '0.0.0.0')
@@ -60,9 +69,11 @@ class Config:
         directories = [
             cls.UPLOAD_FOLDER,
             Path(cls.DATABASE_PATH).parent,
-            cls.MODEL_CACHE_DIR,
-            cls.DEBUG_IMAGES_DIR
+            cls.DEBUG_IMAGES_DIR,
         ]
+
+        if cls.ARCHIVE_ENABLED:
+            directories.append(cls.ARCHIVE_FOLDER)
 
         for directory in directories:
             Path(directory).mkdir(parents=True, exist_ok=True)
@@ -88,9 +99,7 @@ class Config:
         config_items = [
             ("Upload Folder", cls.UPLOAD_FOLDER),
             ("Database Path", cls.DATABASE_PATH),
-            ("Model Cache", cls.MODEL_CACHE_DIR),
             ("Debug Images", cls.DEBUG_IMAGES_DIR),
-            ("Model Name", cls.MODEL_NAME),
             ("Polling Interval", f"{cls.FILE_WATCHER_POLLING_INTERVAL}s"),
             ("Flask Host", cls.FLASK_HOST),
             ("Flask Port", cls.FLASK_PORT),
@@ -103,6 +112,15 @@ class Config:
             ("Saber Enabled", cls.SABER_ENABLED),
             ("Saber Folder", cls.SABER_FOLDER),
             ("Saber Password Set", "Yes" if cls.SABER_PASSWORD else "No"),
+            ("", ""),  # Separator
+            ("Archive Enabled", cls.ARCHIVE_ENABLED),
+            ("Archive Folder", cls.ARCHIVE_FOLDER),
+            ("Archive Preserve Structure", cls.ARCHIVE_PRESERVE_STRUCTURE),
+            ("", ""),  # Separator
+            ("Inference API Base", cls.INFERENCE_API_BASE),
+            ("Inference API Key Set", "Yes" if cls.INFERENCE_API_KEY else "No"),
+            ("Inference Model", cls.INFERENCE_MODEL),
+            ("Inference Timeout", f"{cls.INFERENCE_TIMEOUT}s"),
         ]
 
         print("\n" + "="*60)

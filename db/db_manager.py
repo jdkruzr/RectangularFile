@@ -1213,6 +1213,72 @@ class DatabaseManager:
             self.logger.error(f"Error resetting document status for ID {doc_id}: {e}")
             return False
 
+    def update_archived_path(self, doc_id: int, archived_path: str) -> bool:
+        """
+        Update the archived path for a document after it has been moved to archive.
+
+        Args:
+            doc_id: Document ID
+            archived_path: New path in the archive directory
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE pdf_documents
+                    SET archived_path = ?,
+                        archive_date = ?,
+                        last_indexed_at = ?
+                    WHERE id = ?
+                    RETURNING id
+                """, (archived_path, datetime.now(), datetime.now(), doc_id))
+
+                result = cursor.fetchone()
+                if result:
+                    self.logger.info(f"Updated archived path for document {doc_id}: {archived_path}")
+                    return True
+                else:
+                    self.logger.warning(f"Document not found: {doc_id}")
+                    return False
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error updating archived path for document {doc_id}: {e}")
+            return False
+
+    def get_document_by_original_path(self, original_path: str) -> Optional[Dict]:
+        """
+        Get a document by its original (pre-archive) path.
+
+        This is useful for detecting when a document has been re-uploaded.
+
+        Args:
+            original_path: The original path (relative_path column)
+
+        Returns:
+            Document dictionary or None if not found
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, filename, relative_path, archived_path,
+                           processing_status, version, source_type
+                    FROM pdf_documents
+                    WHERE relative_path = ?
+                """, (original_path,))
+
+                result = cursor.fetchone()
+                if result:
+                    return dict(result)
+                return None
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error getting document by path {original_path}: {e}")
+            return None
+
     def close(self):
         """Close any open database connections."""
         if hasattr(self._local, 'conn'):

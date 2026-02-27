@@ -67,6 +67,30 @@
 </div>
 
 <div class="settings-section">
+    <h2>Inference API</h2>
+    <div class="form-group">
+        <label for="inferenceApiBase">API Base URL</label>
+        <input type="url" id="inferenceApiBase" placeholder="http://localhost:8000/v1">
+        <p>OpenAI-compatible API endpoint (vLLM, Ollama, OpenAI, etc.)</p>
+    </div>
+    <div class="form-group">
+        <label for="inferenceApiKey">API Key (optional)</label>
+        <input type="password" id="inferenceApiKey" placeholder="sk-...">
+        <p>Required for cloud APIs (OpenAI, Anthropic). Leave empty for local servers.</p>
+    </div>
+    <div class="form-group">
+        <label for="inferenceModel">Model Name</label>
+        <input type="text" id="inferenceModel" placeholder="Qwen/Qwen2.5-VL-7B-Instruct">
+        <p>Model identifier to use for OCR processing.</p>
+    </div>
+    <div id="inferenceStatus" class="form-group" style="display: none;">
+        <strong>Status:</strong> <span id="inferenceStatusText"></span>
+    </div>
+    <button id="testInferenceAPI" class="button" style="margin-right: 10px;">Test Connection</button>
+    <button id="saveInferenceSettings" class="button">Save Inference Settings</button>
+</div>
+
+<div class="settings-section">
     <h2>CalDAV Integration</h2>
     <div class="form-group">
         <label>
@@ -117,7 +141,29 @@
                     document.getElementById('fileTypes').value = data.file_types.join(',');
                 }
             });
-            
+
+        // Load Inference API settings
+        fetch('/settings/inference')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('inferenceApiBase').value = data.api_base || '';
+                    document.getElementById('inferenceModel').value = data.model || '';
+                    // Don't populate API key for security
+                    if (data.healthy !== undefined) {
+                        const statusDiv = document.getElementById('inferenceStatus');
+                        const statusText = document.getElementById('inferenceStatusText');
+                        statusDiv.style.display = 'block';
+                        if (data.healthy) {
+                            statusText.innerHTML = '<span style="color: green;">Connected</span>';
+                        } else {
+                            statusText.innerHTML = '<span style="color: red;">Not connected</span>';
+                        }
+                    }
+                }
+            })
+            .catch(error => console.log('Inference settings not configured yet'));
+
         // Load CalDAV settings
         fetch('/settings/caldav')
             .then(response => response.json())
@@ -180,6 +226,73 @@
         });
     });
     
+    // Test Inference API connection
+    document.getElementById('testInferenceAPI').addEventListener('click', function() {
+        const apiBase = document.getElementById('inferenceApiBase').value;
+        const apiKey = document.getElementById('inferenceApiKey').value;
+
+        if (!apiBase) {
+            showNotification('Please enter an API base URL');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('api_base', apiBase);
+        formData.append('api_key', apiKey);
+
+        this.textContent = 'Testing...';
+        this.disabled = true;
+
+        fetch('/settings/inference/test', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            const statusDiv = document.getElementById('inferenceStatus');
+            const statusText = document.getElementById('inferenceStatusText');
+            statusDiv.style.display = 'block';
+
+            if (data.healthy) {
+                statusText.innerHTML = '<span style="color: green;">Connected</span>';
+                if (data.models && data.models.length > 0) {
+                    statusText.innerHTML += ' - Models: ' + data.models.slice(0, 3).join(', ');
+                }
+            } else {
+                statusText.innerHTML = '<span style="color: red;">Failed: ' + (data.error || 'Unknown error') + '</span>';
+            }
+
+            this.textContent = 'Test Connection';
+            this.disabled = false;
+        })
+        .catch(error => {
+            showNotification('Connection test failed');
+            this.textContent = 'Test Connection';
+            this.disabled = false;
+        });
+    });
+
+    // Save Inference settings
+    document.getElementById('saveInferenceSettings').addEventListener('click', function() {
+        const apiBase = document.getElementById('inferenceApiBase').value;
+        const apiKey = document.getElementById('inferenceApiKey').value;
+        const model = document.getElementById('inferenceModel').value;
+
+        const formData = new FormData();
+        formData.append('api_base', apiBase);
+        formData.append('api_key', apiKey);
+        formData.append('model', model);
+
+        fetch('/settings/inference', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            showNotification(data.message);
+        });
+    });
+
     // Test CalDAV connection
     document.getElementById('testCalDAVConnection').addEventListener('click', function() {
         const url = document.getElementById('caldavUrl').value;

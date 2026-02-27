@@ -59,7 +59,12 @@ class SchemaManager:
                     last_accessed_at TIMESTAMP,
                     access_count INTEGER DEFAULT 0,
                     extracted_metadata TEXT,
-                    
+
+                    archived_path TEXT,
+                    archive_date TIMESTAMP,
+                    source_type TEXT DEFAULT 'boox',
+                    version INTEGER DEFAULT 1,
+
                     UNIQUE(relative_path)
                 )
             """,
@@ -229,7 +234,26 @@ class SchemaManager:
                     FOREIGN KEY (doc_id) REFERENCES pdf_documents(id)
                 )"""
             },
-            # Future migrations would be added here
+            {
+                "version": 6,
+                "description": "Add archived_path column for document archiving",
+                "sql": "ALTER TABLE pdf_documents ADD COLUMN archived_path TEXT"
+            },
+            {
+                "version": 7,
+                "description": "Add archive_date column",
+                "sql": "ALTER TABLE pdf_documents ADD COLUMN archive_date TIMESTAMP"
+            },
+            {
+                "version": 8,
+                "description": "Add source_type column for multi-source support",
+                "sql": "ALTER TABLE pdf_documents ADD COLUMN source_type TEXT DEFAULT 'boox'"
+            },
+            {
+                "version": 9,
+                "description": "Add version column for document versioning",
+                "sql": "ALTER TABLE pdf_documents ADD COLUMN version INTEGER DEFAULT 1"
+            },
         ]
     
     def get_current_db_version(self, conn: sqlite3.Connection) -> int:

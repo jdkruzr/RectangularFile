@@ -189,9 +189,12 @@ def _init_file_watcher(app):
             # Default PDF processing
             app.logger.info(f"Processing PDF file: {filepath}")
             app.pdf_processor.process_document(filepath, doc_id, app.db)
-            
+
             # Only queue PDFs for OCR
-            app.ocr_queue.add_to_queue(doc_id, filepath)
+            app.ocr_queue.add_to_queue(
+                doc_id, filepath,
+                base_watch_dir=Path(app.config['UPLOAD_FOLDER'])
+            )
 
     def handle_removed_file(relative_path):
         """Handle a file that's been removed."""
