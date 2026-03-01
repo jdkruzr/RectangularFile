@@ -2,15 +2,15 @@
 
 ![image](https://github.com/user-attachments/assets/c168eea6-1992-473e-9427-39dbf52b12c9)
 
-RectangularFile is a powerful open-source document management system designed for handwritten notes from e-ink tablets (Onyx Boox, reMarkable, Supernote, etc.) or any kind of device that can output PDFs of handwritten content, such as iPads or Samsung tablets. It uses locally deployed AI with no cloud services required to transcribe handwriting, detect annotations, and make everything searchable.
+RectangularFile is a powerful open-source document management system designed for handwritten notes from e-ink tablets (Onyx Boox, reMarkable, Supernote, etc.) or any kind of device that can output PDFs of handwritten content, such as iPads or Samsung tablets. It uses any OpenAI-compatible vision API — local (vLLM, Ollama) or cloud (OpenAI, Claude) — to transcribe handwriting, detect annotations, and make everything searchable.
 
 ## ✨ Features
 
-- **🤖 AI-Powered Handwriting Recognition** - Uses Qwen2.5-VL-7B for accurate handwriting transcription
+- **🤖 AI-Powered Handwriting Recognition** - Transcribes handwritten notes via any OpenAI-compatible vision API
 - **📝 Annotation Detection** - Automatically detects and indexes:
-  - ✅ Green boxed text (for todos/important items)
-  - 🟨 Yellow highlighted text
-- **📅 CalDAV To-Do Conversion of Highlights** - Automatically takes highlighted text from any note and turns it into a tagged to-do on your favorite CalDAV server
+  - 🔴 Red ink → TODOs and action items
+  - 🟢 Green ink → Tags and categories
+- **📅 CalDAV To-Do Sync** - Automatically creates todos on your CalDAV server from red-ink action items
 - **🔍 Full-Text Search** - Search across all your handwritten notes with folder filtering
 - **📁 Multi-Device Support** - Automatically organizes notes from multiple devices
 - **☁️ Word Clouds** - Visualize common themes across your notes
@@ -21,19 +21,19 @@ RectangularFile is a powerful open-source document management system designed fo
 
 1. Clone the repository
 2. Create a virtualenv in your repo directory: `python3 -m venv venv`
-2. Install dependencies: `pip install -r requirements.txt`
-3. Set up authentication (see below)
-4. Set up your Gunicorn installation with a systemd unit file like the provided example rectangular-file.service, place in `/etc/systemd/system/`
-5. Point your e-ink devices to sync PDFs to `/mnt/onyx` (or configured folder)
-6. `systemctl start && systemctl enable` 
+3. Install dependencies: `pip install -r requirements.txt`
+4. Set up authentication (see below)
+5. Configure your inference API endpoint (see below)
+6. Set up a systemd unit file using the provided [rectangular-file.service](rectangular-file.service) example, place in `/etc/systemd/system/`
+7. Point your e-ink devices to sync PDFs to `/mnt/onyx` (or your configured folder)
+8. `systemctl start && systemctl enable rectangular-file`
 
 ## 📋 Requirements
 
 - Python 3.8+
-- NVIDIA GPU with 16GB+ VRAM (for Qwen2.5-VL-7B)
-- 50GB+ disk space for model cache
+- An OpenAI-compatible vision API endpoint (local or cloud — see [Inference API Setup](#inference-api-setup))
 - System packages:
-  - `poppler` (macOS: `brew install poppler`)
+  - `poppler-utils` (Ubuntu/Debian: `sudo apt install poppler-utils`, macOS: `brew install poppler`)
   - `python3-pip python3-venv` (Linux)
 
 ## 🔐 Authentication Setup
@@ -55,9 +55,32 @@ SECRET_KEY=<generated_key>
 APP_PASSWORD_HASH=<generated_hash>
 ```
 
+## 🧠 Inference API Setup
+
+RectangularFile works with any OpenAI-compatible vision API. Configure it with these environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INFERENCE_API_BASE` | `http://localhost:8000/v1` | OpenAI-compatible API endpoint |
+| `INFERENCE_API_KEY` | *(empty)* | API key (required for cloud providers) |
+| `INFERENCE_MODEL` | `Qwen/Qwen2.5-VL-7B-Instruct` | Model identifier |
+| `INFERENCE_MAX_TOKENS` | `2048` | Max tokens per response |
+| `INFERENCE_TIMEOUT` | `120` | Request timeout in seconds |
+
+**Local backends:**
+- **vLLM**: `INFERENCE_API_BASE=http://localhost:8000/v1` (default)
+- **Ollama**: `INFERENCE_API_BASE=http://localhost:11434/v1`
+- **llama.cpp**: `INFERENCE_API_BASE=http://localhost:8080/v1`
+
+**Cloud backends:**
+- **OpenAI**: `INFERENCE_API_BASE=https://api.openai.com/v1` with `INFERENCE_API_KEY=sk-...` and `INFERENCE_MODEL=gpt-4o`
+- **Anthropic** (via OpenAI-compatible proxy): set `INFERENCE_API_BASE` to your proxy URL
+
+A vision-capable model is required. [Qwen2.5-VL](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) works well for handwriting; GPT-4o and similar cloud models also work.
+
 ## ⚙️ Configuration
 
-All paths and settings can be configured via environment variables. See [rectangular-file.service](rectangular-file.service) for a complete example.
+All settings are configured via environment variables. See [rectangular-file.service](rectangular-file.service) for a complete example.
 
 ### Key Configuration Options
 
@@ -65,16 +88,22 @@ All paths and settings can be configured via environment variables. See [rectang
 |----------|---------|-------------|
 | `UPLOAD_FOLDER` | `/mnt/onyx` | Directory where PDFs are synced |
 | `DATABASE_PATH` | `/mnt/rectangularfile/pdf_index.db` | SQLite database location |
-| `MODEL_NAME` | `Qwen/Qwen2.5-VL-7B-Instruct` | HuggingFace model identifier |
-| `MODEL_CACHE_DIR` | `/mnt/rectangularfile/qwencache` | Model cache directory |
+| `ARCHIVE_ENABLED` | `true` | Move processed files to archive (enables re-upload detection) |
+| `ARCHIVE_FOLDER` | `/mnt/rectangularfile/archive` | Archive directory for processed files |
 | `DEBUG_IMAGES_DIR` | `/mnt/rectangularfile/debug_images` | Debug image output |
 | `POLLING_INTERVAL` | `30.0` | File watcher polling interval (seconds) |
 | `FLASK_HOST` | `0.0.0.0` | Flask server bind address |
 | `FLASK_PORT` | `5000` | Flask server port |
 
+### How Archiving Works
+
+When a document is successfully processed, it is moved from `UPLOAD_FOLDER` to `ARCHIVE_FOLDER`. This keeps the watch directory clean and enables re-upload detection: if a file with the same name appears in the upload folder again, the system treats it as new content.
+
+If you disable archiving (`ARCHIVE_ENABLED=false`), files remain in the upload folder after processing.
+
 ### Starting from Scratch
 
-To rebuild your database from existing PDFs:
+To rebuild your database from existing files:
 
 1. **Stop the service:**
    ```bash
@@ -95,16 +124,22 @@ To rebuild your database from existing PDFs:
    - Either don't configure CalDAV environment variables, or
    - Set CalDAV to disabled in settings after first start
 
-5. **Start the service:**
+5. **Move archived files back to the upload folder** (if archiving is enabled):
+   ```bash
+   # Files are archived after processing — move them back to be re-scanned
+   cp -r /mnt/rectangularfile/archive/* /mnt/onyx/
+   ```
+
+6. **Start the service:**
    ```bash
    sudo systemctl start rectangular-file
    ```
 
-6. The system will automatically discover and process all PDFs in `UPLOAD_FOLDER`
+7. The system will automatically discover and process all PDFs in `UPLOAD_FOLDER`.
 
-7. **After processing completes**, configure CalDAV in the web UI if desired. Only new highlights after this point will create todos.
+8. **After processing completes**, configure CalDAV in the web UI if desired. Only new action items after this point will create todos.
 
 
 ## 📖 Documentation
 
-- [Installation Guide](docs/installation.md)
+- [Installation Guide](installation.md)

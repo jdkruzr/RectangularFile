@@ -4,9 +4,8 @@ This guide will walk you through setting up RectangularFile on your server.
 
 ## Table of Contents
 - [System Requirements](#system-requirements)
-- [GPU Setup](#gpu-setup)
 - [Installation Steps](#installation-steps)
-- [Model Setup](#model-setup)
+- [Inference API Setup](#inference-api-setup)
 - [Database Initialization](#database-initialization)
 - [Systemd Service](#systemd-service)
 - [Nginx Configuration](#nginx-configuration)
@@ -17,14 +16,13 @@ This guide will walk you through setting up RectangularFile on your server.
 
 ### Minimum Requirements
 - **OS**: Ubuntu 20.04+ or Debian 11+ (other Linux distros should work)
-- **CPU**: 4+ cores recommended
-- **RAM**: 16GB minimum, 32GB recommended
-- **GPU**: NVIDIA GPU with 12GB+ VRAM (RTX 3060 Ti 16GB, RTX 4060 Ti 16GB, etc.)
-- **Storage**: 
-  - 50GB for model cache
-  - Additional space for document storage
-  - SSD strongly recommended
+- **CPU**: 2+ cores
+- **RAM**: 4GB minimum, 8GB recommended
+- **Storage**:
+  - Space for document storage and archive (depends on your note volume)
+  - SSD recommended
 - **Python**: 3.8 or higher
+- **Inference**: An OpenAI-compatible vision API endpoint (local or cloud — see [Inference API Setup](#inference-api-setup))
 
 ### Required System Packages
 
@@ -38,46 +36,11 @@ sudo apt install -y python3-pip python3-venv python3-dev
 # Install PDF processing dependencies
 sudo apt install -y poppler-utils
 
-# Install image processing libraries
-sudo apt install -y libgl1 libglx-mesa0 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+# Install image processing libraries (required by Pillow/pdf2image)
+sudo apt install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev
 
 # Install git (if not already installed)
 sudo apt install -y git
-```
-
-## GPU Setup
-
-### 1. Install NVIDIA Drivers
-
-```bash
-# Check if you have NVIDIA drivers installed
-nvidia-smi
-
-# If not installed, install them:
-sudo apt install nvidia-driver-535  # or latest version
-
-# Reboot after installation
-sudo reboot
-```
-
-### 2. Install CUDA Toolkit
-
-RectangularFile requires CUDA for GPU acceleration:
-
-```bash
-# Install CUDA 12.1 (or compatible version)
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
-sudo apt update
-sudo apt install -y cuda-toolkit-12-1
-
-# Add CUDA to PATH
-echo 'export PATH=/usr/local/cuda-12.1/bin:$PATH' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
-source ~/.bashrc
-
-# Verify installation
-nvcc --version
 ```
 
 ## Installation Steps
@@ -88,8 +51,8 @@ nvcc --version
 # Create a dedicated user for the application
 # I like to use "sysop" because it was the username for
 # the superuser on OpenVMS when I was given those
-# creds at my first job in high school. 
-sudo useradd -r -s /bin/bash -d /home/sysop sysop 
+# creds at my first job in high school.
+sudo useradd -r -s /bin/bash -d /home/sysop sysop
 sudo mkdir -p /home/sysop
 sudo chown sysop:sysop /home/sysop
 ```
@@ -121,43 +84,65 @@ pip install --upgrade pip
 ### 4. Install Python Dependencies
 
 ```bash
-# Install PyTorch with CUDA support for 5xxx series cards
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# Install other requirements
 pip install -r requirements.txt
 ```
 
 ### 5. Create Required Directories
 
 ```bash
-# Create directories for application data
+# Application data directory
 sudo mkdir -p /mnt/rectangularfile
-# Or wherever you want to put e.g. the RF sqlite3 database.
-sudo mkdir -p /mnt/onyx  # Or your preferred document upload directory
-# I created a mount for the directory that is created by Boox devices
-# automatically.
+sudo mkdir -p /mnt/rectangularfile/debug_images
+sudo mkdir -p /mnt/rectangularfile/archive
 sudo chown -R sysop:sysop /mnt/rectangularfile
-sudo chown -R sysop:sysop /mnt/onyx
 
-# Create cache directory for models
-mkdir -p /mnt/rectangularfile/qwencache
-mkdir -p /mnt/rectangularfile/debug_images
+# Document upload directory (or wherever your devices sync to)
+sudo mkdir -p /mnt/onyx
+sudo chown -R sysop:sysop /mnt/onyx
 ```
 
-## Model Setup
+## Inference API Setup
 
-The Qwen2.5-VL-7B model will be downloaded automatically on first run, but you can pre-download it:
+RectangularFile requires an OpenAI-compatible vision API for handwriting recognition. It does not include a local inference engine — you point it at whichever backend you prefer.
+
+### Option A: Local — vLLM
+
+[vLLM](https://docs.vllm.ai/) is recommended for self-hosted inference. Qwen2.5-VL-7B works well for handwriting:
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Pre-download the model
-python -c "from transformers import AutoModel; AutoModel.from_pretrained('Qwen/Qwen2.5-VL-7B-Instruct', cache_dir='/mnt/rectangularfile/qwencache')"
+pip install vllm
+vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8000
 ```
 
-**Note**: This will download approximately 15GB of model files.
+Set in your service file:
+```
+Environment=INFERENCE_API_BASE=http://localhost:8000/v1
+Environment=INFERENCE_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+```
+
+### Option B: Local — Ollama
+
+[Ollama](https://ollama.com/) is the easiest local option:
+
+```bash
+ollama pull qwen2.5vl:7b
+```
+
+Set in your service file:
+```
+Environment=INFERENCE_API_BASE=http://localhost:11434/v1
+Environment=INFERENCE_MODEL=qwen2.5vl:7b
+```
+
+### Option C: Cloud — OpenAI
+
+```
+Environment=INFERENCE_API_BASE=https://api.openai.com/v1
+Environment=INFERENCE_API_KEY=sk-your-key-here
+Environment=INFERENCE_MODEL=gpt-4o
+```
+
+Any vision-capable model works. GPT-4o and similar models handle handwriting well.
 
 ## Database Initialization
 
@@ -166,8 +151,11 @@ The database will be created automatically on first run at `/mnt/rectangularfile
 To manually initialize or check the database:
 
 ```bash
-# Run the schema manager
-python -c "from db.schema_manager import SchemaManager; sm = SchemaManager('/mnt/rectangularfile/pdf_index.db'); sm.initialize_database()"
+# Initialize database
+python db_migration_tool.py init
+
+# Check current status
+python db_migration_tool.py status
 ```
 
 ## Systemd Service
@@ -178,29 +166,38 @@ python -c "from db.schema_manager import SchemaManager; sm = SchemaManager('/mnt
 sudo nano /etc/systemd/system/rectangular-file.service
 ```
 
-Add the following content:
+Add the following content (adjust paths and credentials as needed):
 
 ```ini
 [Unit]
 Description=RectangularFile Handwritten Note Manager
 After=network.target
 
-# Change the below as necessary.
 [Service]
 Type=simple
 User=sysop
 Group=sysop
 WorkingDirectory=/home/sysop/RectangularFile
-Environment="PATH=/home/sysop/RectangularFile/venv/bin:/usr/local/cuda-12.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-Environment="LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64"
-Environment="TRANSFORMERS_CACHE=/mnt/rectangularfile/qwencache"
-Environment="PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+Environment="PATH=/home/sysop/RectangularFile/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Authentication settings (CHANGE THESE!)
 Environment="SECRET_KEY=your-generated-secret-key-here"
 Environment="APP_PASSWORD_HASH=your-generated-password-hash-here"
 
-ExecStart=/home/sysop/RectangularFile/venv/bin/gunicorn -w 1 -b 0.0.0.0:8000 --timeout 300 --access-logfile - --error-logfile - main:app
+# Inference API (required — point to your backend)
+Environment="INFERENCE_API_BASE=http://localhost:8000/v1"
+Environment="INFERENCE_MODEL=Qwen/Qwen2.5-VL-7B-Instruct"
+# Environment="INFERENCE_API_KEY=your-api-key"  # required for cloud providers
+
+# File paths
+Environment="UPLOAD_FOLDER=/mnt/onyx"
+Environment="DATABASE_PATH=/mnt/rectangularfile/pdf_index.db"
+
+# Archive (moves processed files out of upload folder to enable re-upload detection)
+Environment="ARCHIVE_ENABLED=true"
+Environment="ARCHIVE_FOLDER=/mnt/rectangularfile/archive"
+
+ExecStart=/home/sysop/RectangularFile/venv/bin/gunicorn -w 1 -b 0.0.0.0:5000 --timeout 300 --access-logfile - --error-logfile - main:app
 Restart=on-failure
 RestartSec=10
 
@@ -260,25 +257,17 @@ sudo journalctl -u rectangular-file -f
 
 ## Troubleshooting
 
-### GPU Memory Issues
+### Inference API Not Responding
 
-If you encounter CUDA out of memory errors:
+If documents are queued but not being processed:
 
-1. Check GPU memory usage: `nvidia-smi`
-2. Ensure no other processes are using GPU
-3. Try restarting the service: `sudo systemctl restart rectangular-file`
-
-### Model Download Issues
-
-If model download fails:
-
-1. Check disk space: `df -h`
-2. Check network connectivity
-3. Try manual download with resume:
+1. Check that your inference backend is running and reachable:
    ```bash
-   cd /mnt/rectangularfile/qwencache
-   wget -c https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/resolve/main/model.safetensors
+   curl http://localhost:8000/v1/models
    ```
+2. Verify `INFERENCE_API_BASE` is set correctly in the service file
+3. Check logs for connection errors: `sudo journalctl -u rectangular-file -n 100`
+4. If using a cloud API, confirm your `INFERENCE_API_KEY` is valid
 
 ### Permission Issues
 
@@ -296,21 +285,28 @@ If you see "database is locked" errors:
 2. Check for stuck processes: `ps aux | grep python`
 3. Restart the service: `sudo systemctl start rectangular-file`
 
+### Files Not Being Processed
+
+If files appear in the upload folder but aren't being picked up:
+1. Check `UPLOAD_FOLDER` is set correctly
+2. Verify the service user has read access to the folder
+3. Check logs for file watcher errors: `sudo journalctl -u rectangular-file -n 50`
+4. Use `python scan_filesystem.py` to compare what's on disk vs the database
+
 ## Next Steps
 
 Once installation is complete:
 
-1. Access the web interface at `http://your-server-ip`
+1. Access the web interface at `http://your-server-ip:5000`
 2. Log in with the password you configured
 3. Upload a test PDF to verify OCR functionality
 4. Configure your e-ink devices to sync
-5. Check the [Configuration Guide](configuration.md) for advanced settings
+5. Optionally configure CalDAV in the web UI for todo sync
 
 ## Support
 
 If you encounter issues:
 
 1. Check the logs: `sudo journalctl -u rectangular-file -n 100`
-2. Verify GPU is detected: `nvidia-smi`
-3. Ensure all dependencies are installed
-4. Open an issue on GitHub with error details
+2. Ensure all dependencies are installed: `pip install -r requirements.txt`
+3. Open an issue on GitHub with error details
