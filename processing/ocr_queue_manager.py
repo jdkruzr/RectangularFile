@@ -127,27 +127,6 @@ class OCRQueueManager:
                     doc_id, 5.0, "Queued for OCR processing"
                 )
 
-                # Improved memory cleanup before processing each document
-                if hasattr(self.ocr_processor, 'device') and self.ocr_processor.device == 'cuda':
-                    import torch
-                    import gc
-
-                    # More aggressive memory cleanup
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()  # Wait for all CUDA operations to finish
-                    gc.collect()  # Run Python garbage collector
-
-                    # Second round of cleanup
-                    torch.cuda.empty_cache()
-
-                    # Log memory status
-                    if torch.cuda.is_available():
-                        allocated = torch.cuda.memory_allocated() / (1024**3)
-                        reserved = torch.cuda.memory_reserved() / (1024**3)
-                        total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                        free = total - reserved
-                        self.logger.info(f"GPU: {allocated:.2f}GB alloc, {reserved:.2f}GB reserved, {free:.2f}GB free", doc_id)
-
                 # Process the document with OCR
                 try:
                     success = self.ocr_processor.process_document(
@@ -175,14 +154,6 @@ class OCRQueueManager:
                             self.logger.error(f"Archive failed: {archive_error}", doc_id)
                 else:
                     self.logger.fail_operation("OCR processing", doc_id)
-
-                # Final cleanup after processing (if using local GPU inference)
-                if hasattr(self.ocr_processor, 'device') and self.ocr_processor.device == 'cuda':
-                    import torch
-                    import gc
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                    gc.collect()
 
                 self.queue.task_done()
                 self.currently_processing = None
