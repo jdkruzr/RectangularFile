@@ -1,0 +1,100 @@
+Mar 08 07:29:33 ceres systemd[1]: rectangular-file.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED
+Mar 08 07:29:33 ceres systemd[1]: rectangular-file.service: Failed with result 'exit-code'.
+Mar 08 07:29:34 ceres systemd[1]: rectangular-file.service: Scheduled restart job, restart counter is at 3.
+Mar 08 07:29:34 ceres systemd[1]: Started rectangular-file.service - Rectangular File.
+Mar 08 07:29:34 ceres gunicorn[47813]: [2026-03-08 07:29:34 +0000] [47813] [INFO] Starting gunicorn 23.0.0
+Mar 08 07:29:34 ceres gunicorn[47813]: [2026-03-08 07:29:34 +0000] [47813] [INFO] Listening at: http://0.0.0.0:5000 (47813)
+Mar 08 07:29:34 ceres gunicorn[47813]: [2026-03-08 07:29:34 +0000] [47813] [INFO] Using worker: sync
+Mar 08 07:29:34 ceres gunicorn[47814]: [2026-03-08 07:29:34 +0000] [47814] [INFO] Booting worker with pid: 47814
+Mar 08 07:29:34 ceres gunicorn[47814]: [2026-03-08 07:29:34 +0000] [47814] [ERROR] Exception in worker process
+Mar 08 07:29:34 ceres gunicorn[47814]: Traceback (most recent call last):
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/arbiter.py", line 608, in spawn_worker
+Mar 08 07:29:34 ceres gunicorn[47814]:     worker.init_process()
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/workers/base.py", line 135, in init_process
+Mar 08 07:29:34 ceres gunicorn[47814]:     self.load_wsgi()
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/workers/base.py", line 147, in load_wsgi
+Mar 08 07:29:34 ceres gunicorn[47814]:     self.wsgi = self.app.wsgi()
+Mar 08 07:29:34 ceres gunicorn[47814]:                 ^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/app/base.py", line 66, in wsgi
+Mar 08 07:29:34 ceres gunicorn[47814]:     self.callable = self.load()
+Mar 08 07:29:34 ceres gunicorn[47814]:                     ^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/app/wsgiapp.py", line 57, in load
+Mar 08 07:29:34 ceres gunicorn[47814]:     return self.load_wsgiapp()
+Mar 08 07:29:34 ceres gunicorn[47814]:            ^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/app/wsgiapp.py", line 47, in load_wsgiapp
+Mar 08 07:29:34 ceres gunicorn[47814]:     return util.import_app(self.app_uri)
+Mar 08 07:29:34 ceres gunicorn[47814]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/util.py", line 370, in import_app
+Mar 08 07:29:34 ceres gunicorn[47814]:     mod = importlib.import_module(module)
+Mar 08 07:29:34 ceres gunicorn[47814]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+Mar 08 07:29:34 ceres gunicorn[47814]:     return _bootstrap._gcd_import(name[level:], package, level)
+Mar 08 07:29:34 ceres gunicorn[47814]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/main.py", line 13, in <module>
+Mar 08 07:29:34 ceres gunicorn[47814]:     from processing.vision_api_client import VisionAPIClient
+Mar 08 07:29:34 ceres gunicorn[47814]:   File "/home/sysop/RectangularFile/processing/vision_api_client.py", line 21, in <module>
+Mar 08 07:29:34 ceres gunicorn[47814]:     import httpx
+Mar 08 07:29:34 ceres gunicorn[47814]: ModuleNotFoundError: No module named 'httpx'
+Mar 08 07:29:34 ceres gunicorn[47814]: [2026-03-08 07:29:34 +0000] [47814] [INFO] Worker exiting (pid: 47814)
+Mar 08 07:29:34 ceres gunicorn[47813]: [2026-03-08 07:29:34 +0000] [47813] [ERROR] Worker (pid:47814) exited with code 3
+Mar 08 07:29:34 ceres gunicorn[47813]: [2026-03-08 07:29:34 +0000] [47813] [ERROR] Shutting down: Master
+Mar 08 07:29:34 ceres gunicorn[47813]: [2026-03-08 07:29:34 +0000] [47813] [ERROR] Reason: Worker failed to boot.
+Mar 08 07:29:34 ceres systemd[1]: rectangular-file.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED
+Mar 08 07:29:34 ceres systemd[1]: rectangular-file.service: Failed with result 'exit-code'.
+Mar 08 07:29:34 ceres systemd[1]: rectangular-file.service: Scheduled restart job, restart counter is at 4.
+Mar 08 07:29:34 ceres systemd[1]: Started rectangular-file.service - Rectangular File.
+Mar 08 07:29:34 ceres gunicorn[47816]: [2026-03-08 07:29:34 +0000] [47816] [INFO] Starting gunicorn 23.0.0
+Mar 08 07:29:34 ceres gunicorn[47816]: [2026-03-08 07:29:34 +0000] [47816] [INFO] Listening at: http://0.0.0.0:5000 (47816)
+Mar 08 07:29:34 ceres gunicorn[47816]: [2026-03-08 07:29:34 +0000] [47816] [INFO] Using worker: sync
+Mar 08 07:29:34 ceres gunicorn[47817]: [2026-03-08 07:29:34 +0000] [47817] [INFO] Booting worker with pid: 47817
+Mar 08 07:29:34 ceres gunicorn[47817]: [2026-03-08 07:29:34 +0000] [47817] [ERROR] Exception in worker process
+Mar 08 07:29:34 ceres gunicorn[47817]: Traceback (most recent call last):
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/arbiter.py", line 608, in spawn_worker
+Mar 08 07:29:34 ceres gunicorn[47817]:     worker.init_process()
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/workers/base.py", line 135, in init_process
+Mar 08 07:29:34 ceres gunicorn[47817]:     self.load_wsgi()
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/workers/base.py", line 147, in load_wsgi
+Mar 08 07:29:34 ceres gunicorn[47817]:     self.wsgi = self.app.wsgi()
+Mar 08 07:29:34 ceres gunicorn[47817]:                 ^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/app/base.py", line 66, in wsgi
+Mar 08 07:29:34 ceres gunicorn[47817]:     self.callable = self.load()
+Mar 08 07:29:34 ceres gunicorn[47817]:                     ^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/app/wsgiapp.py", line 57, in load
+Mar 08 07:29:34 ceres gunicorn[47817]:     return self.load_wsgiapp()
+Mar 08 07:29:34 ceres gunicorn[47817]:            ^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/app/wsgiapp.py", line 47, in load_wsgiapp
+Mar 08 07:29:34 ceres gunicorn[47817]:     return util.import_app(self.app_uri)
+Mar 08 07:29:34 ceres gunicorn[47817]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/venv/lib/python3.12/site-packages/gunicorn/util.py", line 370, in import_app
+Mar 08 07:29:34 ceres gunicorn[47817]:     mod = importlib.import_module(module)
+Mar 08 07:29:34 ceres gunicorn[47817]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+Mar 08 07:29:34 ceres gunicorn[47817]:     return _bootstrap._gcd_import(name[level:], package, level)
+Mar 08 07:29:34 ceres gunicorn[47817]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/main.py", line 13, in <module>
+Mar 08 07:29:34 ceres gunicorn[47817]:     from processing.vision_api_client import VisionAPIClient
+Mar 08 07:29:34 ceres gunicorn[47817]:   File "/home/sysop/RectangularFile/processing/vision_api_client.py", line 21, in <module>
+Mar 08 07:29:34 ceres gunicorn[47817]:     import httpx
+Mar 08 07:29:34 ceres gunicorn[47817]: ModuleNotFoundError: No module named 'httpx'
+Mar 08 07:29:34 ceres gunicorn[47817]: [2026-03-08 07:29:34 +0000] [47817] [INFO] Worker exiting (pid: 47817)
+Mar 08 07:29:34 ceres gunicorn[47816]: [2026-03-08 07:29:34 +0000] [47816] [ERROR] Worker (pid:47817) exited with code 3
+Mar 08 07:29:34 ceres gunicorn[47816]: [2026-03-08 07:29:34 +0000] [47816] [ERROR] Shutting down: Master
+Mar 08 07:29:34 ceres gunicorn[47816]: [2026-03-08 07:29:34 +0000] [47816] [ERROR] Reason: Worker failed to boot.
+Mar 08 07:29:34 ceres systemd[1]: rectangular-file.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED
+Mar 08 07:29:34 ceres systemd[1]: rectangular-file.service: Failed with result 'exit-code'.
+Mar 08 07:29:35 ceres systemd[1]: rectangular-file.service: Scheduled restart job, restart counter is at 5.
+Mar 08 07:29:35 ceres systemd[1]: rectangular-file.service: Start request repeated too quickly.
+Mar 08 07:29:35 ceres systemd[1]: rectangular-file.service: Failed with result 'exit-code'.
+Mar 08 07:29:35 ceres systemd[1]: Failed to start rectangular-file.service - Rectangular File.
